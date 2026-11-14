@@ -320,11 +320,11 @@ fn a_bash_recipe_gets_the_bash_header() {
     );
 }
 
-/// The check phase of a check user runs with an open umask and reopens
-/// the work directories when it ends, whatever the phase's result, while
-/// the other phases keep the closed umask.
+/// The check phase of a check user runs with an open umask, so the files
+/// it creates stay openable for the reopen the builder runs after the
+/// phase ends, while the other phases keep the closed umask.
 #[test]
-fn the_check_user_check_reopens_the_work_directories_when_it_ends() {
+fn the_check_user_check_keeps_an_open_umask() {
     let style = scripts(
         &Build::Make {
             make_args: vec![],
@@ -339,12 +339,7 @@ fn the_check_user_check_reopens_the_work_directories_when_it_ends() {
         check.starts_with("#!/bin/sh\nset -eu\numask 0000\ncd \"$SRC\"\n"),
         "{check}"
     );
-    assert!(
-        check.contains(
-            "trap 'chmod -R a+rwX \"$SRC\" /build/obj /build/tmp /build/home 2>/dev/null || :' EXIT\n",
-        ),
-        "{check}"
-    );
+    assert!(!check.contains("trap 'chmod"), "{check}");
     let build = phases.build.as_deref().expect("a build phase");
     assert!(build.contains("umask 022\n"), "{build}");
     assert!(!build.contains("trap 'chmod"), "{build}");

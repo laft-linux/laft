@@ -1011,7 +1011,7 @@ fn requests_of_a_missing_name_fail_with_the_available_versions() {
 /// Checks that a successful resolution is sound: one package per name,
 /// every request and dependency satisfied, and no conflicts. An unversioned
 /// dependency on a name nothing selected may be met by a package that
-/// replaces the name.
+/// replaces the name, or by a pending build whose buildable replaces it.
 fn check_sound(r: &Resolution<'_>, requests: &[Request], options: &BTreeMap<Name, OptionRequest>) {
     for build in &r.builds {
         assert!(
@@ -1025,8 +1025,8 @@ fn check_sound(r: &Resolution<'_>, requests: &[Request], options: &BTreeMap<Name
         assert_eq!(&meta.name, name);
         if let Some(req) = options.get(name) {
             // A preferred value may lose to a newer version: the
-            // preference order of spec 17 §6.4 ranks deviations below the
-            // version, so only fixed values are hard for a package.
+            // preference order ranks deviations below the version, so
+            // only fixed values are hard for a package.
             for (opt, fixed) in &req.fixed {
                 assert_eq!(
                     meta.options.get(opt),

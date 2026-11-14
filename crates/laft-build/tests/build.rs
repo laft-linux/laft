@@ -1240,7 +1240,7 @@ fn a_recipe_without_the_opt_in_runs_its_check_phase_as_root() {
 
 /// A check of a check user that makes a private directory and fails
 /// leaves the work tree in a state the builder can remove, because the
-/// check phase reopens the work directories when it ends.
+/// builder reopens the work directories after the phase ends.
 #[test]
 fn a_failed_check_user_build_leaves_a_work_tree_the_builder_removes() {
     let dir = laft_test::tempdir();

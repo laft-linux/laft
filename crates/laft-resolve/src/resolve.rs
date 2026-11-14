@@ -1899,7 +1899,7 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
         if let Some(build) = self.builds.get_mut(to) {
             // The build stands in for the replaced name only through a
             // replaces entry of its own, which the recipe evaluation
-            // records on the buildable (17 section 6.3).
+            // records on the buildable.
             if build
                 .buildable
                 .replaces

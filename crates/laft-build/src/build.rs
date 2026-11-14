@@ -1146,7 +1146,9 @@ impl<'a> Builder<'a> {
     /// stopping after the phase named `until` when it is given. The check
     /// phase runs only when the builder and the recipe enable it, never in
     /// bootstrap mode, and without `DESTDIR` and `OUT`, which only
-    /// installing needs.
+    /// installing needs. A check phase of a check user finds its work
+    /// directories open and leaves them reopened by the builder, whatever
+    /// the phase's result.
     ///
     /// # Errors
     ///
@@ -1192,7 +1194,15 @@ impl<'a> Builder<'a> {
             };
             if name == "check" && recipe.options.check_user {
                 open_work_tree(session)?;
-                session.exec.run_as_check_user(name, &script, env)?;
+                let result = session.exec.run_as_check_user(name, &script, env);
+                // The phase may have died before its own cleanup ran, so
+                // the builder reopens the work directories itself. In a
+                // fresh namespace the check user's files map to its own
+                // id, and it opens them for the caller, whose removal
+                // would otherwise fail on the private modes a umask
+                // cannot prevent. The phase's error must not be masked.
+                let _ = session.exec.run_as_check_user(name, REOPEN_TREE, env);
+                result?;
             } else {
                 session.exec.run(name, &script, env)?;
             }
@@ -1574,6 +1584,10 @@ fn install_licenses(recipe: &Recipe, src: &Path, out: &Path) -> Result<(), Build
     Ok(())
 }
 
+/// The command the builder runs as the check user after the check phase,
+/// whatever its result, to reopen the work directories the phase left.
+const REOPEN_TREE: &str = "chmod -R a+rwX \"$SRC\" /build/obj /build/tmp /build/home";
+
 /// Opens the work directories a check user runs in: every phase before
 /// the check created its files as the builder's own user, and the check
 /// user needs to write into the directories it finds, for example the
@@ -1585,9 +1599,10 @@ fn open_work_tree(session: &Session) -> Result<(), BuildError> {
     Ok(())
 }
 
-/// Opens `path` recursively to everyone, directories to everyone
-/// searchable and writable and files to everyone readable and writable. A
-/// symlink stays as it is, since its target carries the mode.
+/// Opens `path` recursively to everyone: directories become readable,
+/// searchable and writable by everyone, and files readable and writable
+/// by everyone. A symlink stays as it is, so that the recursion never
+/// leaves the work tree, which a source tree can point out of anywhere.
 fn open_tree(path: &Path) -> Result<(), BuildError> {
     let meta = fs::symlink_metadata(path).map_err(io(path))?;
     if meta.file_type().is_symlink() {
