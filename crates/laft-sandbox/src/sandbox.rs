@@ -251,7 +251,7 @@ impl Command {
     }
 
     /// Runs the command as the check user inside its build sandbox: uid
-    /// and gid [`CHECK_ID`], named `check` in the sandbox's `/etc`, with
+    /// and gid 100, named `check` in the sandbox's `/etc`, with
     /// home `/build/home`, instead of root. The user namespace maps that
     /// id to a second host id: the caller's first subordinate id through
     /// `newuidmap` and `newgidmap` when the caller is not root, or a map
