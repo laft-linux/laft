@@ -24,11 +24,10 @@ pub struct StoreDifference {
 }
 
 /// Lists the packages whose store ids differ between the build roots
-/// `first` and `second`, sorted by name, then variant. A package that only
-/// one root holds, and one that both hold with different store ids, is
-/// listed; roots that agree on a package list nothing. When a root holds
-/// several entries of one package, the last one in the sorted listing, the
-/// one with the greatest store id, counts.
+/// `first` and `second`, sorted by identity. A package that only one root
+/// holds, and one that both hold with different store ids, is listed;
+/// roots that agree on a package list nothing. When a root holds several
+/// entries of one package, the one with the greatest store id counts.
 ///
 /// # Errors
 ///
@@ -49,27 +48,15 @@ pub fn compare_roots(first: &Path, second: &Path) -> Result<Vec<StoreDifference>
             second: b.cloned(),
         });
     }
-    out.sort_by(|x, y| {
-        (
-            &x.identity.name,
-            x.identity.variant,
-            &x.identity.version,
-            x.identity.rev,
-            x.identity.arch,
-        )
-            .cmp(&(
-                &y.identity.name,
-                y.identity.variant,
-                &y.identity.version,
-                y.identity.rev,
-                y.identity.arch,
-            ))
-    });
+    out.sort_by(|x, y| x.identity.cmp(&y.identity));
     Ok(out)
 }
 
 /// The store id of every entry of the store below `root`, keyed by the
-/// identity of its package, which the metadata of the entry names.
+/// identity of its package, which the metadata of the entry names. The
+/// store lists its entries by the base32 of their ids, whose alphabet
+/// orders digits before letters, so the last entry of the listing is not
+/// the one with the greatest id; the greatest id of an identity counts.
 fn entries(root: &Path) -> Result<BTreeMap<Identity, StoreId>, BuildError> {
     let dir = root.join("store");
     let metadata = fs::metadata(&dir).map_err(io(&dir))?;
@@ -84,7 +71,13 @@ fn entries(root: &Path) -> Result<BTreeMap<Identity, StoreId>, BuildError> {
     for dir_name in store.list()? {
         let meta = store.meta(&dir_name)?;
         let id = store.manifest(&dir_name)?.store_id();
-        out.insert(meta.identity(), id);
+        out.entry(meta.identity())
+            .and_modify(|kept| {
+                if id > *kept {
+                    *kept = id;
+                }
+            })
+            .or_insert(id);
     }
     Ok(out)
 }

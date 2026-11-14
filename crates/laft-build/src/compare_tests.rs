@@ -95,3 +95,29 @@ fn a_root_without_a_store_directory_is_refused() {
     assert!(matches!(error, BuildError::Io { .. }), "{error:?}");
     assert!(error.to_string().contains("store"), "{error}");
 }
+
+/// When a root holds several entries of one identity, the one with the
+/// greatest store id counts. The store lists its entries by the base32 of
+/// their ids, whose alphabet orders digits before letters, so the last
+/// entry of the listing is not always the one with the greatest id.
+#[test]
+fn duplicate_entries_list_the_greatest_store_id() {
+    let dir = laft_test::tempdir();
+    let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+    let first = TestPkg {
+        files: &[("usr/share/zlib/f00", b"content")],
+        ..TestPkg::new("zlib")
+    };
+    let second = TestPkg {
+        files: &[("usr/share/zlib/f05", b"content")],
+        ..TestPkg::new("zlib")
+    };
+    let ids = store_with(&a, dir.path(), &[first, second]);
+    store_with(&b, dir.path(), &[]);
+    let differences = compare_roots(&a, &b).unwrap();
+    assert_eq!(differences.len(), 1, "{differences:?}");
+    let expected = ids.iter().copied().max().expect("two ids");
+    assert_ne!(expected, ids[0], "the pair must diverge in both orders");
+    assert_eq!(differences[0].first, Some(expected));
+    assert_eq!(differences[0].second, None);
+}
