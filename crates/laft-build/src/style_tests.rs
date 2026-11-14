@@ -320,6 +320,36 @@ fn a_bash_recipe_gets_the_bash_header() {
     );
 }
 
+/// The check phase of a check user runs with an open umask and reopens
+/// the work directories when it ends, whatever the phase's result, while
+/// the other phases keep the closed umask.
+#[test]
+fn the_check_user_check_reopens_the_work_directories_when_it_ends() {
+    let style = scripts(
+        &Build::Make {
+            make_args: vec![],
+            check_target: "check".into(),
+            install_args: vec![],
+        },
+        &input(Variant::Dynamic),
+    );
+    let phases = phases(style, &no_phases(), "", Shell::Sh, true);
+    let check = phases.check.as_deref().expect("a check phase");
+    assert!(
+        check.starts_with("#!/bin/sh\nset -eu\numask 0000\ncd \"$SRC\"\n"),
+        "{check}"
+    );
+    assert!(
+        check.contains(
+            "trap 'chmod -R a+rwX \"$SRC\" /build/obj /build/tmp /build/home 2>/dev/null || :' EXIT\n",
+        ),
+        "{check}"
+    );
+    let build = phases.build.as_deref().expect("a build phase");
+    assert!(build.contains("umask 022\n"), "{build}");
+    assert!(!build.contains("trap 'chmod"), "{build}");
+}
+
 /// Every style, with every option that changes what it renders.
 fn every_style() -> Vec<Build> {
     vec![
@@ -382,29 +412,31 @@ fn every_style_renders_posix_shell() {
     };
     for build in every_style() {
         for variant in [Variant::Dynamic, Variant::Static] {
-            let rendered = phases(
-                scripts(&build, &input(variant)),
-                &no_phases(),
-                "",
-                Shell::Sh,
-                false,
-            );
-            for (name, script) in rendered.iter() {
-                let Some(script) = script else { continue };
-                let output = std::process::Command::new(dash)
-                    .args(["-n", "-c", script])
-                    .output()
-                    .expect("dash runs");
-                assert!(
-                    output.status.success(),
-                    "{build:?} {variant} {name} is not POSIX shell: {}\n{script}",
-                    String::from_utf8_lossy(&output.stderr)
+            for check_user in [false, true] {
+                let rendered = phases(
+                    scripts(&build, &input(variant)),
+                    &no_phases(),
+                    "",
+                    Shell::Sh,
+                    check_user,
                 );
-                let found = laft_test::bashisms(script);
-                assert!(
-                    found.is_empty(),
-                    "{build:?} {variant} {name} uses {found:?}:\n{script}"
-                );
+                for (name, script) in rendered.iter() {
+                    let Some(script) = script else { continue };
+                    let output = std::process::Command::new(dash)
+                        .args(["-n", "-c", script])
+                        .output()
+                        .expect("dash runs");
+                    assert!(
+                        output.status.success(),
+                        "{build:?} {variant} {name} is not POSIX shell: {}\n{script}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    let found = laft_test::bashisms(script);
+                    assert!(
+                        found.is_empty(),
+                        "{build:?} {variant} {name} uses {found:?}:\n{script}"
+                    );
+                }
             }
         }
     }

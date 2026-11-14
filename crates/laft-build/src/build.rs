@@ -1195,6 +1195,7 @@ impl<'a> Builder<'a> {
                 &session.env
             };
             if name == "check" && recipe.options.check_user {
+                open_work_tree(session)?;
                 session.exec.run_as_check_user(name, &script, env)?;
             } else {
                 session.exec.run(name, &script, env)?;
@@ -1573,6 +1574,36 @@ fn install_licenses(recipe: &Recipe, src: &Path, out: &Path) -> Result<(), Build
             .map_err(io(&to))?;
         std::io::copy(&mut from, &mut dest).map_err(io(&to))?;
         fsx::set_mode(&to, 0o644)?;
+    }
+    Ok(())
+}
+
+/// Opens the work directories a check user runs in: every phase before
+/// the check created its files as the builder's own user, and the check
+/// user needs to write into the directories it finds, for example the
+/// dep directories of a test compilation.
+fn open_work_tree(session: &Session) -> Result<(), BuildError> {
+    for sub in ["src", "obj", "tmp", "home"] {
+        open_tree(&session.build.join(sub))?;
+    }
+    Ok(())
+}
+
+/// Opens `path` recursively to everyone, directories to everyone
+/// searchable and writable and files to everyone readable and writable. A
+/// symlink stays as it is, since its target carries the mode.
+fn open_tree(path: &Path) -> Result<(), BuildError> {
+    let meta = fs::symlink_metadata(path).map_err(io(path))?;
+    if meta.file_type().is_symlink() {
+        return Ok(());
+    }
+    let mut mode = meta.permissions().mode();
+    mode |= if meta.is_dir() { 0o777 } else { 0o666 };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).map_err(io(path))?;
+    if meta.is_dir() {
+        for entry in fs::read_dir(path).map_err(io(path))? {
+            open_tree(&entry.map_err(io(path))?.path())?;
+        }
     }
     Ok(())
 }

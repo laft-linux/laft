@@ -384,7 +384,8 @@ EOF";
 /// Folds the recipe's replacements and hooks into the style's scripts and
 /// adds the common header to every phase that runs anything. The check
 /// phase of a recipe with `check_user` keeps the file mode the sandbox's
-/// check user creates files with, so that the caller can clean them up.
+/// check user creates files with and reopens the work directories when it
+/// ends, so that the caller can clean up whatever the phase's result.
 pub(crate) fn phases(
     style: Scripts,
     recipe: &schema::Phases,
@@ -394,7 +395,12 @@ pub(crate) fn phases(
 ) -> Phases {
     let header = format!("{}umask 022\ncd \"{}\"\n", shell.header(), src_dir(subdir));
     let check_header = if check_user {
-        format!("{}umask 0000\ncd \"{}\"\n", shell.header(), src_dir(subdir))
+        format!(
+            "{}umask 0000\ncd \"{}\"\ntrap 'chmod -R a+rwX \"$SRC\" /build/obj /build/tmp \
+             /build/home 2>/dev/null || :' EXIT\n",
+            shell.header(),
+            src_dir(subdir)
+        )
     } else {
         header.clone()
     };

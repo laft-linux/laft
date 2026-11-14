@@ -1211,6 +1211,45 @@ fn a_recipe_without_the_opt_in_runs_its_check_phase_as_root() {
     }
 }
 
+/// A check of a check user that makes a private directory and fails
+/// leaves the work tree in a state the builder can remove, because the
+/// check phase reopens the work directories when it ends.
+#[test]
+fn a_failed_check_user_build_leaves_a_work_tree_the_builder_removes() {
+    let dir = laft_test::tempdir();
+    if let Some(reason) = unsupported(dir.path()) {
+        println!("skipping: {reason}");
+        return;
+    }
+    if let Err(reason) = laft_sandbox::check_user_available(&laft_sandbox::check_user_env()) {
+        println!("skipping: {reason}");
+        return;
+    }
+    let repos = repos_with(
+        dir.path(),
+        "  check_user = true\n  build make {}\n  phases {\n    check = \"d=$(mktemp -d) && touch \\\"$d/f\\\" \
+         && exit 1\"\n  }",
+    );
+    let recipe: Recipe = support::evaluate(&repos, "hello").remove(0);
+    let (root, cache) = offline_cache(dir.path());
+    let builder = Builder::new(&repos, &cache, &root, Mode::View("/usr".into()));
+    let inputs = builder.key_inputs(&recipe).unwrap();
+    let work = builder.work_dir(&inputs.build_key());
+    let error = builder.build(&recipe, &inputs, None).unwrap_err();
+    assert_eq!(error.code(), Some("B040"), "the check phase fails: {error}");
+    let tmp = work.join("build/tmp");
+    assert!(
+        fs::read_dir(&tmp).unwrap().next().is_some(),
+        "the check made its private directory under {tmp:?}"
+    );
+    let error = builder.build(&recipe, &inputs, None).unwrap_err();
+    assert_eq!(
+        error.code(),
+        Some("B040"),
+        "the builder removes the tree the failed check left: {error}"
+    );
+}
+
 /// A build of an options recipe with its defaults and with each option
 /// changed: every option set is its own package with its own store id,
 /// and every package records the values it was built with.
