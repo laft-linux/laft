@@ -421,6 +421,7 @@ fn the_initrd_resolves_with_the_systems_option_values_and_buildables() {
         rev: 1,
         variant,
         defaults: BTreeMap::from([("x".to_owned(), laft_core::OptionValue::Bool(true))]),
+        replaces: Vec::new(),
     };
     let context = ViewContext {
         options: &options,

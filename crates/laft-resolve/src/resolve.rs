@@ -73,8 +73,10 @@ pub struct FixedValue {
 ///
 /// Its dependencies are unknown until the recipe is evaluated with the
 /// chosen values, so a buildable candidate satisfies only dependencies on
-/// its own name, and joins no alternatives group. When the view selects
-/// one and building is not allowed, the resolution fails with S011.
+/// its own name and, through its [`Buildable::replaces`] entries, on the
+/// names its recipe replaces, and joins no alternatives group. When the
+/// view selects one and building is not allowed, the resolution fails
+/// with S011.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Buildable {
     /// The package name.
@@ -88,6 +90,10 @@ pub struct Buildable {
     /// The declared default of every option. The values of a build start
     /// from these.
     pub defaults: BTreeMap<String, OptionValue>,
+    /// The packages the recipe replaces, as the index entry the snapshot
+    /// would build records them. A build stands in for a dependency on
+    /// another name only through one of these.
+    pub replaces: Vec<Dep>,
 }
 
 /// A package the view needs from a recipe snapshot, with the values it
@@ -1185,10 +1191,23 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
         let demanded = self.required.get(name).into_iter().flatten();
         let mut applied: Vec<&OptionConstraints> = Vec::with_capacity(2);
         for dep in demanded {
-            if let Dep::Pkg(_, _, opts) = dep {
-                apply(opts, &mut values);
-                applied.push(opts);
+            let Dep::Pkg(dep_name, _, opts) = dep else {
+                continue;
+            };
+            if dep_name != name
+                && !b
+                    .replaces
+                    .iter()
+                    .any(|d| matches!(d, Dep::Pkg(x, _, _) if x == dep_name))
+            {
+                // A build stands in for a dependency on another name only
+                // through its own replaces entries, so a dependency the
+                // rename of another name pointed here keeps the build
+                // from being offered when the recipe replaces nothing.
+                return None;
             }
+            apply(opts, &mut values);
+            applied.push(opts);
         }
         apply(want.options, &mut values);
         applied.push(want.options);
@@ -1733,7 +1752,8 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
     /// Satisfies a dependency on `name`. A dependency without a version
     /// requirement on a name without candidates follows the rename when
     /// exactly one package name replaces it, and is met by a candidate of
-    /// that name that replaces it.
+    /// that name that replaces it, or by a build of it whose recipe
+    /// replaces it.
     fn satisfy_name(
         &mut self,
         dep: &'a Dep,
@@ -1847,7 +1867,8 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
     }
 
     /// Satisfies `dep`, on a name without candidates, with a candidate of
-    /// `to` that replaces the name.
+    /// `to` that replaces the name, or with a build of `to` whose recipe
+    /// replaces it and whose values hold the option constraints.
     fn satisfy_replacement(
         &mut self,
         dep: &'a Dep,
@@ -1855,7 +1876,7 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
         by: Candidate<'a>,
         reason: Reason,
     ) -> Result<(), Stop<'a>> {
-        let Dep::Pkg(_, _, opts) = dep else {
+        let Dep::Pkg(replaced, _, opts) = dep else {
             return Err(self.replacement_unsatisfied(dep, to, by));
         };
         if let Some(sel) = self.selected.get_mut(to) {
@@ -1876,7 +1897,16 @@ impl<'p, 'u, 'a> Pass<'p, 'u, 'a> {
             });
         }
         if let Some(build) = self.builds.get_mut(to) {
-            if constraints_hold(&build.values, opts) {
+            // The build stands in for the replaced name only through a
+            // replaces entry of its own, which the recipe evaluation
+            // records on the buildable (17 section 6.3).
+            if build
+                .buildable
+                .replaces
+                .iter()
+                .any(|d| matches!(d, Dep::Pkg(x, _, _) if x == replaced))
+                && constraints_hold(&build.values, opts)
+            {
                 build.reasons.push(reason);
                 return Ok(());
             }

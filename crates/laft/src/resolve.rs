@@ -215,6 +215,7 @@ pub(crate) fn buildables(indexes: &[RepoIndex]) -> (Vec<Buildable>, SnapshotMap)
             rev: entry.meta.rev,
             variant,
             defaults,
+            replaces: entry.meta.replaces.clone(),
         });
     }
     (out, snapshots)

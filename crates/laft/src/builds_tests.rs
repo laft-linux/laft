@@ -15,6 +15,7 @@ fn buildable(name: &str, version: &str, variant: Variant) -> Buildable {
         rev: 1,
         variant,
         defaults: BTreeMap::new(),
+        replaces: Vec::new(),
     }
 }
 

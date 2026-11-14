@@ -269,6 +269,20 @@ pub(crate) fn buildable(of: &str, version: &str, defaults: &[(&str, &str)]) -> B
                 )
             })
             .collect(),
+        replaces: vec![],
+    }
+}
+
+/// Builder methods that keep every list sorted, as metadata requires.
+pub(crate) trait BuildableExt: Sized {
+    /// The packages the recipe replaces.
+    fn replaces(self, deps: &[&str]) -> Self;
+}
+
+impl BuildableExt for Buildable {
+    fn replaces(mut self, deps: &[&str]) -> Self {
+        self.replaces = parsed(deps);
+        self
     }
 }
 

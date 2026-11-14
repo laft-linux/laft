@@ -397,8 +397,8 @@ fn a_so_dependency_is_met_by_a_pending_build_from_either_order() {
 }
 
 /// A replacement is not selected when the replacer is already a pending
-/// build: the pass resolves the name once, either as a build or as a
-/// published package, never both.
+/// build whose recipe replaces the name: the pass resolves the name once,
+/// either as a build or as a published package, never both.
 #[test]
 fn a_replacement_is_not_selected_when_the_replacer_is_a_pending_build() {
     let mut core = index(
@@ -414,7 +414,7 @@ fn a_replacement_is_not_selected_when_the_replacer_is_a_pending_build() {
     core.options
         .insert(name("y"), vec![decl_bool("vulkan", "intel")]);
     let mut i = input("system", vec![req("app"), req("b")], &[]);
-    i.buildable = vec![buildable("y", "25.3.0", &[("vulkan", "intel")])];
+    i.buildable = vec![buildable("y", "25.3.0", &[("vulkan", "intel")]).replaces(&["x"])];
     i.allow_builds = true;
     let r = universe(&[(&core, 0)])
         .resolve(&i)
@@ -1047,16 +1047,22 @@ fn check_sound(r: &Resolution<'_>, requests: &[Request], options: &BTreeMap<Name
                             req.matches(&b.buildable.version, b.buildable.rev)
                                 && constraints_hold(&b.values, opts)
                         }
-                        None => {
-                            *req == VersionReq::Any
-                                && r.packages.values().any(|s| {
-                                    s.candidate
-                                        .meta
-                                        .replaces
-                                        .iter()
-                                        .any(|d| matches!(d, Dep::Pkg(x, _, _) if x == n))
-                                })
-                        }
+                    None => {
+                        *req == VersionReq::Any
+                            && (r.packages.values().any(|s| {
+                                s.candidate
+                                    .meta
+                                    .replaces
+                                    .iter()
+                                    .any(|d| matches!(d, Dep::Pkg(x, _, _) if x == n))
+                            }) || r.builds.iter().any(|b| {
+                                b.buildable
+                                    .replaces
+                                    .iter()
+                                    .any(|d| matches!(d, Dep::Pkg(x, _, _) if x == n))
+                                    && constraints_hold(&b.values, opts)
+                            }))
+                    }
                     },
                 },
                 _ => {
@@ -1345,6 +1351,7 @@ fn arb_scenario(max_packages: usize) -> impl Strategy<Value = Scenario> {
                         rev: m.rev,
                         variant: m.variant,
                         defaults: m.options.clone(),
+                        replaces: m.replaces.clone(),
                     })
                     .collect();
                 Scenario {
@@ -1953,6 +1960,50 @@ fn dependency_on_a_replaced_name_follows_the_rename() {
         ],
     );
     assert_eq!(code(resolve_core(&core, &["app"], &[])), "S003");
+}
+
+/// A dependency that a rename covers is not met by a build of the name
+/// that replaces it: what the snapshot builds replaces is unknown, so
+/// the resolution selects a candidate that replaces the name instead.
+#[test]
+fn a_rename_is_not_met_by_a_build_of_the_replacer() {
+    let core = index(
+        "core",
+        vec![
+            pkg("p2 1"),
+            pkg("p2 1.5").depends(&["p5{vaapi=amd}"]),
+            pkg("p6 2"),
+            pkg("p6 1.5").replaces(&["p5<1"]),
+        ],
+    );
+    let mut i = input("system", vec![req("p6"), req("p2")], &[]);
+    i.buildable = vec![buildable("p6", "3", &[])];
+    i.allow_builds = true;
+    let r = universe(&[(&core, 0)]).resolve(&i).unwrap();
+    assert_eq!(labels(&r), ["p2 1.5-r1", "p6 1.5-r1"]);
+    assert!(r.builds.is_empty(), "{:?}", r.builds);
+}
+
+/// A dependency that a rename covers keeps the snapshot from building
+/// the name it was renamed to: the build cannot meet it, so the
+/// resolution selects the candidate that replaces the name.
+#[test]
+fn a_rename_keeps_the_snapshot_from_building_the_replacer() {
+    let core = index(
+        "core",
+        vec![
+            pkg("p2 1"),
+            pkg("p2 1.5").depends(&["p5{vaapi=amd}"]),
+            pkg("p6 2"),
+            pkg("p6 1.5").replaces(&["p5<1"]),
+        ],
+    );
+    let mut i = input("system", vec![req("p6"), req("p2")], &[]);
+    i.buildable = vec![buildable("p6", "2", &[])];
+    i.allow_builds = true;
+    let r = universe(&[(&core, 0)]).resolve(&i).unwrap();
+    assert_eq!(labels(&r), ["p2 1.5-r1", "p6 1.5-r1"]);
+    assert!(r.builds.is_empty(), "{:?}", r.builds);
 }
 
 #[test]
