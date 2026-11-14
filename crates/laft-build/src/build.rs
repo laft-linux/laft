@@ -1086,7 +1086,12 @@ impl<'a> Builder<'a> {
                 fsx::copy_tree(&common, &build.join("common").join(repo.name.as_str()))?;
             }
         }
-        for file in recipe.patches.iter().chain(&recipe.files) {
+        for file in recipe
+            .patches
+            .iter()
+            .chain(&recipe.files)
+            .chain(&recipe.recipe_files)
+        {
             let rel = file.path.strip_prefix("/build/").unwrap_or(&file.path);
             let mut bytes = Vec::new();
             fsx::open_beneath(build, rel)

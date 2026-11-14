@@ -196,3 +196,40 @@ fn a_build_that_joins_no_jobserver_sees_the_whole_budget() {
     assert!(budget.jobserver, "the executor joins the jobserver");
     assert_eq!(budget.share, 2, "the share of three builds at once");
 }
+
+/// A declared recipe file that changed since evaluation is refused like a
+/// changed patch.
+#[test]
+fn a_recipe_file_that_changed_since_evaluation_is_refused() {
+    let dir = laft_test::tempdir();
+    let repos = Repos::open(&[] as &[&std::path::Path]).expect("no repositories open");
+    let config = laft_fetch::Config {
+        offline: true,
+        ..laft_fetch::Config::new(dir.path().join("cache"))
+    };
+    let root = BuildRoot::new(dir.path().join("root"));
+    let cache = SourceCache::new(root.sources(), laft_fetch::Fetcher::new(config));
+    let builder = Builder::new(&repos, &cache, &root, Mode::Store);
+    let build = dir.path().join("build");
+    for sub in ["recipes", "common"] {
+        fs::create_dir_all(build.join(sub)).unwrap();
+    }
+    write_tree(&build.join("recipes/core/zlib"), &[("config", b"config")]);
+    let mut recipe = recipe("zlib");
+    recipe.recipe_files = vec![crate::recipe::FileRef {
+        path: "/build/recipes/core/zlib/config".into(),
+        blake3: Blake3Hash::of(b"config"),
+    }];
+    builder.copy_recipe_files(&recipe, &build).unwrap();
+    let changed = dir.path().join("changed");
+    for sub in ["recipes", "common"] {
+        fs::create_dir_all(changed.join(sub)).unwrap();
+    }
+    write_tree(
+        &changed.join("recipes/core/zlib"),
+        &[("config", b"changed")],
+    );
+    let error = builder.copy_recipe_files(&recipe, &changed).unwrap_err();
+    assert_eq!(error.code(), Some("B044"), "{error}");
+    assert!(error.to_string().contains("changed since"), "{error}");
+}
