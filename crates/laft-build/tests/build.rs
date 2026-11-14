@@ -1190,6 +1190,33 @@ fn a_check_user_recipe_runs_its_check_phase_as_the_check_user() {
     }
 }
 
+/// A builder whose environment holds no helpers and no subordinate ids
+/// refuses a check user recipe with `B046`, which is an environment
+/// error, before any phase runs.
+#[test]
+fn an_impoverished_environment_refuses_a_check_user_build() {
+    let dir = laft_test::tempdir();
+    let repos = repos_with(
+        dir.path(),
+        "  check_user = true\n  build make {}\n  phases {\n    check = \"test \\\"$(id -u)\\\" = 100\"\n  }",
+    );
+    let recipe: Recipe = support::evaluate(&repos, "hello").remove(0);
+    let (root, cache) = offline_cache(dir.path());
+    let mut builder = Builder::new(&repos, &cache, &root, Mode::View("/usr".into()));
+    builder.check_user_env = laft_sandbox::CheckUserEnv {
+        root: false,
+        user: None,
+        newuidmap: None,
+        newgidmap: None,
+        subuid: String::new(),
+        subgid: String::new(),
+    };
+    let inputs = builder.key_inputs(&recipe).unwrap();
+    let error = builder.build(&recipe, &inputs, None).unwrap_err();
+    assert_eq!(error.code(), Some("B046"), "{error}");
+    assert!(error.is_environment(), "{error}");
+}
+
 /// Without the opt-in, the check phase keeps running as root.
 #[test]
 fn a_recipe_without_the_opt_in_runs_its_check_phase_as_root() {

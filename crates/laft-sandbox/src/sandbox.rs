@@ -1045,7 +1045,7 @@ fn exec_helper(call: &HelperCall) -> ! {
 }
 
 /// Writes `pid` as a NUL-terminated decimal C string into `buf`, which
-/// must hold at least 12 bytes, without allocating.
+/// must hold 16 bytes, without allocating.
 fn pid_cstr(pid: u32, buf: &mut [u8; 16]) -> &CStr {
     let mut end = buf.len() - 1;
     buf[end] = 0;

@@ -323,6 +323,10 @@ pub struct Builder<'a> {
     /// before the root's `usr/bin`, as [`Executor::search_first`]
     /// describes.
     pub search: Vec<PathBuf>,
+    /// The caller's environment, as the check user pre-flight reads it.
+    /// The default gathers it from the host; a test replaces it to
+    /// exercise the refusal of an environment that cannot map the ids.
+    pub check_user_env: laft_sandbox::CheckUserEnv,
     /// The jobserver whose pipe every build binds at `/build/jobserver`,
     /// or `None` when the builds of this builder run without one.
     pub(crate) jobserver: Option<Jobserver>,
@@ -369,6 +373,7 @@ impl<'a> Builder<'a> {
             dep_options: DepOptions::Context,
             declarations: OnceLock::new(),
             search: Vec::new(),
+            check_user_env: laft_sandbox::check_user_env(),
             jobserver: None,
         }
     }
@@ -824,7 +829,7 @@ impl<'a> Builder<'a> {
             && recipe.options.check
             && recipe.options.check_user
             && !matches!(self.mode, Mode::Bootstrap(_))
-            && let Err(reason) = laft_sandbox::check_user_available(&laft_sandbox::check_user_env())
+            && let Err(reason) = laft_sandbox::check_user_available(&self.check_user_env)
         {
             return Err(BuildError::problem(
                 "B046",
@@ -853,7 +858,6 @@ impl<'a> Builder<'a> {
         inputs: &KeyInputs,
         entries: Option<&[StoreEntry]>,
     ) -> Result<Outcome, BuildError> {
-        self.check_user_available(recipe)?;
         let started = Timestamp::now();
         let session = self.session(recipe, &inputs.build_key(), entries)?;
         self.phases(&session, recipe, None)?;
@@ -974,13 +978,15 @@ impl<'a> Builder<'a> {
     ///
     /// # Errors
     ///
-    /// Fails like [`Builder::build`].
+    /// Fails with `B046` when the ids of a check user cannot be mapped,
+    /// and like [`Builder::build`].
     pub fn session(
         &self,
         recipe: &Recipe,
         key: &Blake3Hash,
         entries: Option<&[StoreEntry]>,
     ) -> Result<Session, BuildError> {
+        self.check_user_available(recipe)?;
         let key_hash = *key;
         let key = key.to_string();
         let key = key.trim_start_matches("b3:");
@@ -994,16 +1000,6 @@ impl<'a> Builder<'a> {
         ] {
             let path = build.join(sub);
             fs::create_dir_all(&path).map_err(io(&path))?;
-        }
-        if self.check
-            && recipe.options.check
-            && recipe.options.check_user
-            && !matches!(self.mode, Mode::Bootstrap(_))
-        {
-            for sub in ["src", "obj", "tmp", "home"] {
-                let path = build.join(sub);
-                fs::set_permissions(&path, fs::Permissions::from_mode(0o777)).map_err(io(&path))?;
-            }
         }
         for path in [&out, &scratch] {
             fs::create_dir_all(path).map_err(io(path))?;
