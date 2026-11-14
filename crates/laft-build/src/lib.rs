@@ -99,6 +99,7 @@
 //! | `B022` | no URL and no mirror has the file |
 //! | `B023` | a local file that cannot be read or written |
 //! | `B024` | an archive that cannot be read |
+//! | `B025` | a vendored tree that holds a device, FIFO or socket |
 //!
 //! Builds report [`BuildError`]s and [`Warning`]s:
 //!

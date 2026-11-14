@@ -147,6 +147,7 @@ Fetching and unpacking sources:
 | `B022` | No URL and no mirror has the file. |
 | `B023` | A local file that cannot be read or written. |
 | `B024` | An archive that cannot be read. |
+| `B025` | A vendored tree that holds a device, FIFO or socket. |
 
 ## Builds
 

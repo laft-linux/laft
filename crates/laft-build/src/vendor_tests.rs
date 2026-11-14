@@ -134,6 +134,25 @@ fn a_symlink_target_too_long_for_the_archive_is_refused_when_packed() {
     assert!(e.to_string().contains("bytes long"), "{}", e);
 }
 
+/// A vendored tree that holds a FIFO is refused with its own problem,
+/// apart from the archive problems.
+#[test]
+fn a_fifo_in_the_tree_is_refused_when_packed() {
+    let dir = laft_test::tempdir();
+    let root = dir.path().join("vendor");
+    write_tree(&root, &[("a/lib.rs", b"lib")]);
+    rustix::fs::mkfifoat(
+        rustix::fs::CWD,
+        root.join("a/pipe"),
+        rustix::fs::Mode::from_raw_mode(0o644),
+    )
+    .unwrap();
+    let file = dir.path().join("v.tar");
+    let e = normalized_tarball(&root, &file).unwrap_err();
+    assert_eq!(e.code(), Some("B025"));
+    assert!(e.to_string().contains("device, FIFO or socket"), "{}", e);
+}
+
 /// The unpacker refuses an archive with more than the entry bound.
 #[test]
 fn unpack_refuses_more_than_the_entry_bound() {

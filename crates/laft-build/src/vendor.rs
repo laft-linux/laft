@@ -114,7 +114,7 @@ pub fn normalized_tarball(dir: &Path, file: &Path) -> Result<(), BuildError> {
             }
             Kind::Other => {
                 return Err(BuildError::problem(
-                    "B024",
+                    "B025",
                     format!("{} is a device, FIFO or socket", path.display()),
                 ));
             }
