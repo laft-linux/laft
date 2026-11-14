@@ -24,8 +24,8 @@
 //! standard error.
 //!
 //! Every command that writes to the build root holds its lock for the whole
-//! run, so a second such run on the same build root fails at once. `eval`,
-//! `plan`, `lint` and dry runs only read and take no lock.
+//! run, so a second such run on the same build root fails at once. `compare`,
+//! `eval`, `plan`, `lint` and dry runs only read and take no lock.
 //!
 //! The exit status is 0 on success, 1 when a build fails, 2 for a usage or
 //! evaluation error, 3 when the machine lacks something builds need, such
@@ -154,7 +154,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
     match cli.command {
         Command::Gc { sources_older_than } => return gc(&root, sources_older_than),
         Command::Seed { files } => return seed(&root, &files, json),
-        Command::Compare { first, second } => return compare(&first, &second),
+        Command::Compare { first, second } => return compare(&first, &second, json),
         Command::Stage {
             file,
             target,
@@ -948,18 +948,32 @@ fn seed(root: &BuildRoot, files: &[PathBuf], json: bool) -> Result<(), Failure> 
 }
 
 /// Prints the packages whose store ids differ between the roots, one line
-/// each, and nothing for the packages the roots agree on.
-fn compare(first: &Path, second: &Path) -> Result<(), Failure> {
+/// each, and nothing for the packages the roots agree on. With `--json`,
+/// the differences go to standard output as a JSON array.
+fn compare(first: &Path, second: &Path, json: bool) -> Result<(), Failure> {
     let differences =
         laft_build::compare_roots(first, second).map_err(|e| Failure::Usage(e.to_string()))?;
+    let mut report = Vec::new();
     for difference in differences {
         let identity = format!("{}.{}", difference.identity, difference.identity.arch);
-        match (difference.first, difference.second) {
+        let (a, b) = (difference.first, difference.second);
+        if json {
+            report.push(json!({
+                "package": identity,
+                "first": a.map(|id| id.to_string()),
+                "second": b.map(|id| id.to_string()),
+            }));
+            continue;
+        }
+        match (a, b) {
             (Some(a), Some(b)) => say(format_args!("{identity} differs: {a} {b}")),
             (Some(a), None) => say(format_args!("{identity} only in {}: {a}", first.display())),
             (None, Some(b)) => say(format_args!("{identity} only in {}: {b}", second.display())),
             (None, None) => {}
         }
+    }
+    if json {
+        say(json!({ "compared": report }));
     }
     Ok(())
 }

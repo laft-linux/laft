@@ -111,8 +111,8 @@ pub struct KeyInputs {
     /// The hash of every source that declares one and of every vendor
     /// tarball, in plan order.
     pub sources: Vec<Sha256Hash>,
-    /// The hash of every patch, in order, then of every other file the
-    /// recipe names.
+    /// The hash of every patch, in order, of every other file the recipe
+    /// names, then of every declared recipe file.
     pub patches: Vec<Blake3Hash>,
     /// The link dependencies in the build view, sorted by name.
     pub links: Vec<LinkInput>,

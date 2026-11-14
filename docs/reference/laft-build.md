@@ -103,9 +103,9 @@ Run a bootstrap stage: build the packages of a [stage file](./recipe#stage-files
 
 Add package files that another build root made, such as the packages of a bootstrap, to the build-side store as seeds. A seed serves build views until a build here adds a package of the same origin and variant.
 
-### `laft-build compare <DIR> <DIR>`
+### `laft-build compare <DIR> <DIR> [--json]`
 
-List the packages whose store ids differ between two build roots, one line each, sorted by name and variant. A package that only one root holds is listed with that root's directory. The command only reads the two stores, prints nothing for the packages the roots agree on, and exits `0` whether or not it found differences.
+List the packages whose store ids differ between two build roots, one line each, sorted by identity. A package that only one root holds is listed with that root's directory. The command only reads the two stores, prints nothing for the packages the roots agree on, and exits `0` whether or not it found differences. With `--json`, the differences go to standard output as a JSON array.
 
 ### `laft-build gc`
 
