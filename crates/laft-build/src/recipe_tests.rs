@@ -50,3 +50,13 @@ fn a_recipe_that_does_not_build_in_parallel_gets_one_job() {
         Some("-j1")
     );
 }
+
+/// A recipe without `recipe_files` keeps the plan hash it had before the
+/// field existed, so packages that declare none keep their store ids.
+#[test]
+fn a_recipe_without_recipe_files_keeps_its_plan_hash() {
+    assert_eq!(
+        recipe("zlib").plan_hash().to_string(),
+        "b3:lw33unauo55ly2yqmakqyw6nfcvn5symd57xevk632vjya4mmqoa"
+    );
+}

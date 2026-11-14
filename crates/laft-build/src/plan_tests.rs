@@ -443,3 +443,21 @@ fn a_stored_record_rederives_its_build_key() {
     let canonical = laft_core::to_canonical_json(&read.inputs).expect("canonical");
     assert_eq!(Blake3Hash::of(&canonical), read.key);
 }
+
+/// Changing the content of a declared recipe file changes the build key
+/// and fires the source trigger.
+#[test]
+fn a_recipe_file_change_fires_the_source_trigger() {
+    let mut base = foo("foo:static");
+    base.recipe_files = vec![FileRef {
+        path: "/build/recipes/core/foo/config".into(),
+        blake3: Blake3Hash::of(b"config"),
+    }];
+    let links = vec![link("zlib", 0, &["libz.so.1"])];
+    let before = KeyInputs::new(&base, links.clone(), Vec::new());
+    let mut changed = base.clone();
+    changed.recipe_files[0].blake3 = Blake3Hash::of(b"another config");
+    let inputs = KeyInputs::new(&changed, links.clone(), Vec::new());
+    assert_ne!(before.build_key(), inputs.build_key());
+    assert_eq!(fired(&before, &inputs), ["T2"]);
+}

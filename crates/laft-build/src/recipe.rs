@@ -41,6 +41,11 @@ pub struct Recipe {
     /// The other files the recipe names with path literals, such as a
     /// kernel configuration.
     pub files: Vec<FileRef>,
+    /// The files the phases read through `$RECIPE` beyond the patches and
+    /// the path literals the recipe names, whose changes rebuild the
+    /// package.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recipe_files: Vec<FileRef>,
     /// Tools that run during the build.
     pub build_deps: Vec<PkgRef>,
     /// Libraries the build links against, adjusted to the variant: every
@@ -80,7 +85,7 @@ impl Recipe {
     /// The plan hash: BLAKE3 of the canonical JSON of the recipe without
     /// [`Recipe::operations`], without [`Recipe::toolchain_epoch`], without
     /// [`Recipe::option_values`] and without the content hashes of sources,
-    /// vendor tarballs, patches and files.
+    /// vendor tarballs, patches, files and recipe files.
     ///
     /// The epoch and the content hashes are left out because the build
     /// key covers them separately, and the option values because the
@@ -100,6 +105,7 @@ impl Recipe {
                 ("vendors", "sha256"),
                 ("patches", "blake3"),
                 ("files", "blake3"),
+                ("recipe_files", "blake3"),
             ] {
                 for entry in entries(object.get_mut(list)) {
                     entry.remove(key);
@@ -128,10 +134,14 @@ impl Recipe {
             .collect()
     }
 
-    /// The BLAKE3 hashes of every patch, in order, then of every other
-    /// file the recipe names.
+    /// The BLAKE3 hashes of every patch, in order, of every other file the
+    /// recipe names, then of every declared recipe file.
     pub fn file_hashes(&self) -> Vec<Blake3Hash> {
-        let files = self.patches.iter().chain(&self.files);
+        let files = self
+            .patches
+            .iter()
+            .chain(&self.files)
+            .chain(&self.recipe_files);
         files.map(|f| f.blake3).collect()
     }
 

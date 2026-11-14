@@ -147,6 +147,12 @@ pub(crate) fn convert(cx: &mut Cx<'_>, p: schema::Package) -> Option<Recipe> {
         .enumerate()
         .filter_map(|(i, path)| file_ref(cx, &["patches", &i.to_string()], path))
         .collect();
+    let recipe_files: Vec<FileRef> = p
+        .recipe_files
+        .iter()
+        .enumerate()
+        .filter_map(|(i, path)| file_ref(cx, &["recipe_files", &i.to_string()], path))
+        .collect();
     let kernel_config = match &p.build {
         Build::Kernel { config, .. } => file_ref(cx, &["build", "kernel", "config"], config),
         _ => None,
@@ -282,6 +288,7 @@ pub(crate) fn convert(cx: &mut Cx<'_>, p: schema::Package) -> Option<Recipe> {
         patches,
         patch_strip: p.patch_strip,
         files: kernel_config.into_iter().collect(),
+        recipe_files,
         build_deps,
         link_deps,
         check_deps: p.check_deps,
@@ -761,3 +768,7 @@ fn file_ref(cx: &mut Cx<'_>, keys: &[&str], path: &Path) -> Option<FileRef> {
 pub(crate) fn builds_for_arch(repos: &[&RecipeRepo], arch: Option<&[String]>) -> bool {
     repos.iter().all(|r| r.arch.contains(ARCH)) && arch.is_none_or(|a| a.iter().any(|a| a == ARCH))
 }
+
+#[cfg(test)]
+#[path = "convert_tests.rs"]
+mod tests;

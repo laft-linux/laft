@@ -31,6 +31,7 @@ pub(crate) fn recipe(item: &str) -> Recipe {
         patches: Vec::new(),
         patch_strip: 1,
         files: Vec::new(),
+        recipe_files: Vec::new(),
         build_deps: Vec::new(),
         link_deps: Vec::new(),
         check_deps: Vec::new(),

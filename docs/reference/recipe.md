@@ -37,6 +37,7 @@ One upstream project built into one or more packages. Block label: the package n
 | `vendors` | `Map<VendorKind, Vendor>` | `{}` | Vendored dependencies. Block label: the vendoring tool. Written as `vendor` blocks. |
 | `patches` | `List<Path>` | `[]` | Patches applied in order in $SRC after extraction. |
 | `patch_strip` | `Int where 0..=10` | `1` | The -p value for patch. |
+| `recipe_files` | `List<Path>` | `[]` | Files the phases read through $RECIPE beyond the patches and the path literals the recipe names. Changing one rebuilds the package. |
 | `build_deps` | `Set<Pkg>` | `[]` | Tools that run during the build, always the dynamic variant. |
 | `link_deps` | `Set<Pkg>` | `[]` | Libraries the package compiles and links against. |
 | `check_deps` | `Set<Pkg>` | `[]` | Packages present only when the check phase runs. |

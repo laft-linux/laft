@@ -62,6 +62,7 @@ pub(crate) struct Package {
     pub(crate) vendors: BTreeMap<VendorKind, Vendor>,
     pub(crate) patches: Vec<PathBuf>,
     pub(crate) patch_strip: u32,
+    pub(crate) recipe_files: Vec<PathBuf>,
 
     pub(crate) build_deps: Vec<PkgRef>,
     pub(crate) link_deps: Vec<PkgRef>,

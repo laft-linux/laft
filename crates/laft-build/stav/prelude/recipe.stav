@@ -186,6 +186,9 @@ struct Package {
   patches:       List<Path> = []
   ## The -p value for patch.
   patch_strip:   Int where 0..=10 = 1
+  ## Files the phases read through $RECIPE beyond the patches and the
+  ## path literals the recipe names. Changing one rebuilds the package.
+  recipe_files:  List<Path> = []
 
   ## Tools that run during the build, always the dynamic variant.
   build_deps:    Set<Pkg> = []
