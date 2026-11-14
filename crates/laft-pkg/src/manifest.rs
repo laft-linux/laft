@@ -68,7 +68,7 @@ impl FromStr for Arch {
 ///
 /// It displays as `<name>-<version>-r<rev>`, plus `+<variant>` for variants
 /// other than dynamic, which is how errors and people refer to a package.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Identity {
     /// The package name.

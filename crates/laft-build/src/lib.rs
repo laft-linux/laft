@@ -123,6 +123,7 @@
 
 mod build;
 mod buildinfo;
+mod compare;
 mod convert;
 mod db;
 mod deploy;
@@ -171,6 +172,7 @@ pub use buildinfo::{
     BUILDINFO_FORMAT, Buildinfo, BuildinfoError, BuildinfoHost, BuiltPackage, Output, RepoState,
     SourceHash, VendorHash, ViewPackage,
 };
+pub use compare::{StoreDifference, compare_roots};
 pub use db::{Db, Stored};
 pub use env::SOURCE_DATE_EPOCH;
 pub use error::{BuildError, Warning};

@@ -211,6 +211,15 @@ pub(crate) enum Command {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
+    /// List the packages whose store ids differ between two build roots.
+    Compare {
+        /// The first build root.
+        #[arg(value_name = "DIR")]
+        first: PathBuf,
+        /// The second build root.
+        #[arg(value_name = "DIR")]
+        second: PathBuf,
+    },
     /// Remove working trees, staging files and old sources.
     Gc {
         /// Also remove cached sources not used for this many days, at

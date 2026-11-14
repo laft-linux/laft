@@ -154,6 +154,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
     match cli.command {
         Command::Gc { sources_older_than } => return gc(&root, sources_older_than),
         Command::Seed { files } => return seed(&root, &files, json),
+        Command::Compare { first, second } => return compare(&first, &second),
         Command::Stage {
             file,
             target,
@@ -257,7 +258,10 @@ fn run(cli: Cli) -> Result<(), Failure> {
             &options,
             &packages,
         ),
-        Command::Gc { .. } | Command::Seed { .. } | Command::Stage { .. } => Ok(()),
+        Command::Gc { .. }
+        | Command::Seed { .. }
+        | Command::Stage { .. }
+        | Command::Compare { .. } => Ok(()),
     }
 }
 
@@ -265,7 +269,10 @@ fn run(cli: Cli) -> Result<(), Failure> {
 /// take the lock.
 fn writer(command: &Command) -> Option<&'static str> {
     match command {
-        Command::Eval { .. } | Command::Plan { .. } | Command::Lint { .. } => None,
+        Command::Eval { .. }
+        | Command::Plan { .. }
+        | Command::Lint { .. }
+        | Command::Compare { .. } => None,
         Command::Stage { dry_run: true, .. } | Command::Bootstrap { dry_run: true, .. } => None,
         Command::Build { .. } => Some("build"),
         Command::Fetch { .. } => Some("fetch"),
@@ -936,6 +943,23 @@ fn seed(root: &BuildRoot, files: &[PathBuf], json: bool) -> Result<(), Failure> 
     }
     if json {
         say(json!({ "seeded": report }));
+    }
+    Ok(())
+}
+
+/// Prints the packages whose store ids differ between the roots, one line
+/// each, and nothing for the packages the roots agree on.
+fn compare(first: &Path, second: &Path) -> Result<(), Failure> {
+    let differences =
+        laft_build::compare_roots(first, second).map_err(|e| Failure::Usage(e.to_string()))?;
+    for difference in differences {
+        let identity = format!("{}.{}", difference.identity, difference.identity.arch);
+        match (difference.first, difference.second) {
+            (Some(a), Some(b)) => say(format_args!("{identity} differs: {a} {b}")),
+            (Some(a), None) => say(format_args!("{identity} only in {}: {a}", first.display())),
+            (None, Some(b)) => say(format_args!("{identity} only in {}: {b}", second.display())),
+            (None, None) => {}
+        }
     }
     Ok(())
 }

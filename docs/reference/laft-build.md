@@ -103,13 +103,17 @@ Run a bootstrap stage: build the packages of a [stage file](./recipe#stage-files
 
 Add package files that another build root made, such as the packages of a bootstrap, to the build-side store as seeds. A seed serves build views until a build here adds a package of the same origin and variant.
 
+### `laft-build compare <DIR> <DIR>`
+
+List the packages whose store ids differ between two build roots, one line each, sorted by name and variant. A package that only one root holds is listed with that root's directory. The command only reads the two stores, prints nothing for the packages the roots agree on, and exits `0` whether or not it found differences.
+
 ### `laft-build gc`
 
 Remove working trees, staging files and old sources. `--sources-older-than <DAYS>` also removes cached sources not used for that many days.
 
 ## Locking and disk space
 
-Every command that writes to the build root holds its lock for the whole run, so a second such run on the same build root fails at once. `eval`, `plan`, `lint` and dry runs only read and take no lock. `build`, `check-repro`, `bootstrap` and `stage` need 10 GiB free in the build root and fail with `B031` otherwise.
+Every command that writes to the build root holds its lock for the whole run, so a second such run on the same build root fails at once. `eval`, `plan`, `lint`, `compare` and dry runs only read and take no lock. `build`, `check-repro`, `bootstrap` and `stage` need 10 GiB free in the build root and fail with `B031` otherwise.
 
 ## Exit status
 
