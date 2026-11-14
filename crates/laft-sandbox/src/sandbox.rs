@@ -12,7 +12,7 @@ use rustix::mount::{
     OpenTreeFlags, UnmountFlags,
 };
 use rustix::pipe::PipeFlags;
-use rustix::process::{Pid, Resource, Rlimit, Signal, WaitOptions};
+use rustix::process::{Gid, Pid, Resource, Rlimit, Signal, Uid, WaitOptions, umask};
 use rustix::thread::{CapabilitySet, UnshareFlags};
 
 use crate::error::{Error, Step};
@@ -54,6 +54,12 @@ const HOST_ETC: [(&CStr, &CStr); 3] = [
 
 const ROOT_DIRS: [&CStr; 7] = [c"usr", c"build", c"out", c"proc", c"dev", c"tmp", c"etc"];
 
+/// The uid and gid of the check user, which a command that
+/// [`Command::check_user`] names runs as inside the sandbox. Its host id
+/// is the caller's first subordinate id, or the same number when the
+/// caller is root.
+const CHECK_ID: u32 = 100;
+
 /// The user database of `/etc`, which names the only ids a command runs
 /// as and sees, so that programs that look up their user or group find
 /// one.
@@ -63,6 +69,16 @@ const USER_FILES: [(&CStr, &[u8]); 2] = [
         b"root:x:0:0:root:/build/home:/bin/sh\nnobody:x:65534:65534:nobody:/nonexistent:/bin/false\n",
     ),
     (c"group", b"root:x:0:\nnogroup:x:65534:\n"),
+];
+
+/// The user database of `/etc` with the check user, whose ids the user
+/// namespace maps when a command runs as it.
+const USER_FILES_CHECK: [(&CStr, &[u8]); 2] = [
+    (
+        c"passwd",
+        b"root:x:0:0:root:/build/home:/bin/sh\nnobody:x:65534:65534:nobody:/nonexistent:/bin/false\ncheck:x:100:100:check:/build/home:/bin/false\n",
+    ),
+    (c"group", b"root:x:0:\nnogroup:x:65534:\ncheck:x:100:\n"),
 ];
 
 /// The name service files of `/etc` in an isolated sandbox, whose
@@ -122,7 +138,7 @@ pub enum Network {
 /// | `/proc` | a new procfs that shows only the sandbox's processes |
 /// | `/dev` | a read-only tmpfs with `null`, `zero`, `full`, `random`, `urandom` and `tty` bound from the host, `fd`, `stdin`, `stdout`, `stderr` links, a private pseudo-terminal filesystem at `pts` with `ptmx` linking to its multiplexer, and a private tmpfs at `shm` |
 /// | `/tmp` | a private tmpfs |
-/// | `/etc` | read-only, with `passwd` and `group` naming `root` and `nobody`, and `hosts` and `nsswitch.conf` naming the loopback interface `localhost` or, with [`Network::Host`], the host's name resolution files |
+/// | `/etc` | read-only, with `passwd` and `group` naming `root` and `nobody`, and with the sandbox's check user when a command runs as it, and `hosts` and `nsswitch.conf` naming the loopback interface `localhost` or, with [`Network::Host`], the host's name resolution files |
 ///
 /// Before the command is executed, its capability bounding set is emptied,
 /// `no_new_privs` is set, the core size limit is 0 and the open file limit
@@ -221,6 +237,7 @@ pub struct Command {
     layout: Layout,
     inner: process::Command,
     stdin_set: bool,
+    check_user: bool,
 }
 
 impl Command {
@@ -229,7 +246,21 @@ impl Command {
             layout,
             inner,
             stdin_set: false,
+            check_user: false,
         }
+    }
+
+    /// Runs the command as the check user inside its build sandbox: uid
+    /// and gid [`CHECK_ID`], named `check` in the sandbox's `/etc`, with
+    /// home `/build/home`, instead of root. The user namespace maps that
+    /// id to a second host id: the caller's first subordinate id through
+    /// `newuidmap` and `newgidmap` when the caller is not root, or a map
+    /// the sandbox child writes itself when it is. The check user leaves
+    /// every file it creates open to everyone, so that the caller can
+    /// clean up after the build. It has an effect only in a build sandbox.
+    pub fn check_user(mut self) -> Self {
+        self.check_user = true;
+        self
     }
 
     /// Adds an argument.
@@ -304,10 +335,11 @@ impl Command {
             layout,
             mut inner,
             stdin_set,
+            check_user,
         } = self;
         let setup = Setup {
             new_session: stdin_set,
-            ..Setup::new(&layout)?
+            ..Setup::new(&layout, check_user)?
         };
         let (reader, writer) =
             rustix::pipe::pipe_with(PipeFlags::CLOEXEC).map_err(|e| Error::new(Step::Pipe, e))?;
@@ -365,9 +397,9 @@ impl Command {
 /// child never allocates.
 struct Setup {
     namespaces: UnshareFlags,
-    /// The id maps of the new user namespace, or `None` when the caller is
-    /// root and needs none.
-    id_maps: Option<(Vec<u8>, Vec<u8>)>,
+    /// How the child maps the ids of its new user namespace, or `None`
+    /// when it creates none.
+    id_maps: Option<IdMap>,
     open_files: u64,
     root: RootSetup,
     /// Whether the command leads a session of its own, without a
@@ -375,6 +407,25 @@ struct Setup {
     new_session: bool,
     /// The process that spawns the sandbox.
     caller: Pid,
+}
+
+/// How the ids of a new user namespace are mapped.
+enum IdMap {
+    /// The child writes the maps itself, one write per file: one line
+    /// mapping its own ids, or two lines with the check user for a root
+    /// caller.
+    Own(Vec<u8>, Vec<u8>),
+    /// The child has the ids mapped through `newuidmap` and `newgidmap`,
+    /// which only the caller's subordinate ranges let write a second id.
+    Helpers(Box<HelperCall>, Box<HelperCall>),
+}
+
+/// A prepared call of an id mapping helper: the path of the setuid
+/// program and the arguments that follow the target pid, which the child
+/// names when it runs.
+struct HelperCall {
+    path: CString,
+    args: [CString; 6],
 }
 
 /// How the child builds its root.
@@ -392,6 +443,9 @@ struct BuildRoot {
     host_etc: bool,
     /// The pipe of a jobserver, bound at `/build/jobserver`.
     jobserver: Option<CString>,
+    /// Whether the command runs as the check user, which names its ids in
+    /// `/etc` and whose init the child drops to before the command.
+    check_user: bool,
 }
 
 pub(crate) type Failure = (Step, Errno);
@@ -408,7 +462,7 @@ pub(crate) fn resolve(path: &Path) -> Result<CString, Error> {
 }
 
 impl Setup {
-    fn new(layout: &Layout) -> Result<Self, Error> {
+    fn new(layout: &Layout, check_user: bool) -> Result<Self, Error> {
         let mut namespaces = UnshareFlags::NEWNS
             | UnshareFlags::NEWPID
             | UnshareFlags::NEWIPC
@@ -426,6 +480,7 @@ impl Setup {
                     out: resolve(&sandbox.out)?,
                     host_etc: sandbox.network == Network::Host,
                     jobserver: sandbox.jobserver.as_deref().map(resolve).transpose()?,
+                    check_user,
                 });
                 (root, 0, true)
             }
@@ -440,13 +495,24 @@ impl Setup {
                 (RootSetup::Root(RootTree::new(sandbox)?), 0, true)
             }
         };
-        let id_maps = user_namespace.then(|| {
-            namespaces |= UnshareFlags::NEWUSER;
-            (
-                format!("{inside} {uid} 1\n").into_bytes(),
-                format!("{inside} {gid} 1\n").into_bytes(),
-            )
-        });
+        let id_maps = user_namespace
+            .then(|| {
+                namespaces |= UnshareFlags::NEWUSER;
+                match (check_user, uid == 0) {
+                    (false, _) => Ok(IdMap::Own(
+                        format!("{inside} {uid} 1\n").into_bytes(),
+                        format!("{inside} {gid} 1\n").into_bytes(),
+                    )),
+                    (true, true) => Ok(IdMap::Own(
+                        format!("0 {uid} 1\n{CHECK_ID} {CHECK_ID} 1\n").into_bytes(),
+                        format!("0 {gid} 1\n{CHECK_ID} {CHECK_ID} 1\n").into_bytes(),
+                    )),
+                    (true, false) => helper_calls(uid, gid).map(|(uid_call, gid_call)| {
+                        IdMap::Helpers(Box::new(uid_call), Box::new(gid_call))
+                    }),
+                }
+            })
+            .transpose()?;
         let hard = rustix::process::getrlimit(Resource::Nofile).maximum;
         Ok(Self {
             namespaces,
@@ -478,11 +544,31 @@ impl Setup {
         if rustix::process::getppid() != Some(self.caller) {
             return Err((Step::DeathSignal, Errno::SRCH));
         }
-        sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
-        if let Some((uid_map, gid_map)) = &self.id_maps {
-            write_proc(c"/proc/self/setgroups", b"deny")?;
-            write_proc(c"/proc/self/uid_map", uid_map)?;
-            write_proc(c"/proc/self/gid_map", gid_map)?;
+        // The kernel ignores the setuid bit of a program that a namespace
+        // without maps execs, so the id mapping helpers, which carry it,
+        // are forked before this process enters the namespace, while its
+        // ids are still the caller's.
+        let helpers = match &self.id_maps {
+            Some(IdMap::Helpers(uid_call, gid_call)) => {
+                Some((fork_helper(uid_call)?, fork_helper(gid_call)?))
+            }
+            _ => None,
+        };
+        match helpers {
+            Some((uid_helper, gid_helper)) => {
+                sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
+                write_proc(c"/proc/self/setgroups", b"deny")?;
+                run_helper(uid_helper)?;
+                run_helper(gid_helper)?;
+            }
+            None => {
+                sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
+                if let Some(IdMap::Own(uid_map, gid_map)) = &self.id_maps {
+                    write_proc(c"/proc/self/setgroups", b"deny")?;
+                    write_proc(c"/proc/self/uid_map", uid_map)?;
+                    write_proc(c"/proc/self/gid_map", gid_map)?;
+                }
+            }
         }
         let open_files = Rlimit {
             current: Some(self.open_files),
@@ -580,7 +666,14 @@ impl BuildRoot {
         mount_dev(&root, true)?;
         let tmp = fresh_mount(c"tmpfs", Some(c"1777"), nosuid).map_err(fail(Step::MountTmp))?;
         attach(&tmp, &root, c"tmp")?;
-        write_etc(&root, &USER_FILES)?;
+        write_etc(
+            &root,
+            if self.check_user {
+                &USER_FILES_CHECK
+            } else {
+                &USER_FILES
+            },
+        )?;
         if self.host_etc {
             mount_host_etc(&root)?;
         } else {
@@ -588,11 +681,33 @@ impl BuildRoot {
             sys::loopback_up().map_err(fail(Step::Loopback))?;
         }
         enter_root(&root)?;
-        drop_capabilities()?;
-        rustix::thread::set_no_new_privs(true).map_err(fail(Step::NoNewPrivs))?;
         rustix::process::chdir(c"/build").map_err(fail(Step::WorkingDirectory))?;
+        // The identity drop needs CAP_SETUID and CAP_SETGID in the
+        // effective set, and clearing the bounding set needs CAP_SETPCAP,
+        // so the bounding set goes first: changing to the check user
+        // clears the effective set, but nothing it needs after that.
+        drop_capabilities()?;
+        if self.check_user {
+            drop_to_check_user()?;
+        }
+        rustix::thread::set_no_new_privs(true).map_err(fail(Step::NoNewPrivs))?;
         sys::cloexec_from(3).map_err(fail(Step::Descriptors))
     }
+}
+
+/// Drops the init of the sandbox to the check user, so that the command
+/// it execs runs as uid and gid [`CHECK_ID`], and leaves every file it
+/// creates open to everyone, which lets the caller clean up after the
+/// build. The supplementary groups the command inherited stay: the
+/// namespace that mapped its ids refuses setgroups, and they grant
+/// nothing the id itself does not.
+fn drop_to_check_user() -> Result<(), Failure> {
+    let gid = Gid::from_raw(CHECK_ID);
+    let uid = Uid::from_raw(CHECK_ID);
+    rustix::thread::set_thread_res_gid(gid, gid, gid).map_err(fail(Step::CheckUser))?;
+    rustix::thread::set_thread_res_uid(uid, uid, uid).map_err(fail(Step::CheckUser))?;
+    umask(Mode::empty());
+    Ok(())
 }
 
 /// Creates an empty tmpfs and stacks it on `/`, where it becomes the root
@@ -784,6 +899,161 @@ fn write_proc(path: &CStr, data: &[u8]) -> Result<(), Failure> {
     } else {
         Err((Step::MapIds, Errno::IO))
     }
+}
+
+/// The calls of `newuidmap` and `newgidmap` for a caller that is not root,
+/// which map the build's own ids and the check user to the caller's first
+/// subordinate ids. Fails when a helper is missing from the path or the
+/// caller has no subordinate range.
+fn helper_calls(uid: u32, gid: u32) -> Result<(HelperCall, HelperCall), Error> {
+    let host = crate::check_user_env();
+    let missing = |name: &str| {
+        Error::new(
+            Step::MapIds,
+            std::io::Error::other(format!("{name} is not on the path")),
+        )
+    };
+    let Some(newuidmap) = host.newuidmap else {
+        return Err(missing("newuidmap"));
+    };
+    let Some(newgidmap) = host.newgidmap else {
+        return Err(missing("newgidmap"));
+    };
+    let Some(user) = host.user.as_deref() else {
+        return Err(Error::new(
+            Step::MapIds,
+            std::io::Error::other(format!("no /etc/passwd entry for uid {uid}")),
+        ));
+    };
+    let range = |content: &str, file: &str| {
+        crate::check_user::first_subordinate(content, user).ok_or_else(|| {
+            Error::new(
+                Step::MapIds,
+                std::io::Error::other(format!("no subordinate id range for {user} in {file}")),
+            )
+        })
+    };
+    let subuid = range(&host.subuid, "/etc/subuid")?;
+    let subgid = range(&host.subgid, "/etc/subgid")?;
+    let number = |value: u32| CString::new(value.to_string()).expect("a number has no nul bytes");
+    Ok((
+        HelperCall {
+            path: cstr(&newuidmap)?,
+            args: [
+                number(0),
+                number(uid),
+                number(1),
+                number(CHECK_ID),
+                number(subuid),
+                number(1),
+            ],
+        },
+        HelperCall {
+            path: cstr(&newgidmap)?,
+            args: [
+                number(0),
+                number(gid),
+                number(1),
+                number(CHECK_ID),
+                number(subgid),
+                number(1),
+            ],
+        },
+    ))
+}
+
+/// `path` as a C string.
+fn cstr(path: &Path) -> Result<CString, Error> {
+    CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        Error::new(
+            Step::MapIds,
+            std::io::Error::other("a path with a nul byte"),
+        )
+    })
+}
+
+/// One id mapping helper forked before the namespace exists: its child,
+/// which waits for a byte, and the write end of the pipe that signals it.
+struct Helper {
+    child: Pid,
+    go: OwnedFd,
+}
+
+/// Forks one id mapping helper for a process that has not entered its new
+/// user namespace yet, so that the setuid bit of the helper program
+/// survives: the kernel ignores it for a program that a namespace without
+/// maps execs. The helper waits for one byte, then execs the helper
+/// program for the process, which by then is its parent inside the
+/// namespace.
+fn fork_helper(call: &HelperCall) -> Result<Helper, Failure> {
+    let (reader, go) = rustix::pipe::pipe_with(PipeFlags::CLOEXEC).map_err(fail(Step::MapIds))?;
+    // SAFETY: the helper only reads a pipe, execs or exits, which is safe
+    // after fork even when the caller has other threads.
+    let child = match unsafe { sys::fork() }.map_err(fail(Step::MapIds))? {
+        sys::Fork::Child => {
+            drop(go);
+            match rustix::io::read(&reader, &mut [0u8; 1]) {
+                Ok(1) => exec_helper(call),
+                _ => sys::exit(1),
+            }
+        }
+        sys::Fork::Parent(child) => child,
+    };
+    Ok(Helper { child, go })
+}
+
+/// Signals the helper of a process whose namespace now refuses setgroups,
+/// and waits for it, which maps that namespace.
+fn run_helper(helper: Helper) -> Result<(), Failure> {
+    rustix::io::write(&helper.go, &[0u8]).map_err(fail(Step::MapIds))?;
+    drop(helper.go);
+    match rustix::process::waitpid(Some(helper.child), WaitOptions::empty())
+        .map_err(fail(Step::MapIds))?
+    {
+        Some((_, status)) if status.exit_status() == Some(0) => Ok(()),
+        Some((_, status)) if status.exit_status() == Some(127) => Err((Step::MapIds, Errno::NOENT)),
+        _ => Err((Step::MapIds, Errno::PERM)),
+    }
+}
+
+/// Execs the helper `call` for the process that forked this helper.
+/// Never returns: a failed exec ends the helper.
+fn exec_helper(call: &HelperCall) -> ! {
+    let mut argv: [*const libc::c_char; 9] = [std::ptr::null(); 9];
+    argv[0] = call.path.as_ptr();
+    let mut pid = [0u8; 16];
+    let Some(parent) = rustix::process::getppid() else {
+        sys::exit(1);
+    };
+    let pid_raw = u32::try_from(Pid::as_raw(Some(parent))).unwrap_or_default();
+    argv[1] = pid_cstr(pid_raw, &mut pid).as_ptr();
+    for (slot, arg) in argv[2..].iter_mut().zip(&call.args) {
+        *slot = arg.as_ptr();
+    }
+    // SAFETY: `execv` replaces this helper, which holds a private
+    // forked copy of the caller's memory and only close-on-exec
+    // descriptors.
+    if unsafe { libc::execv(call.path.as_ptr(), argv.as_ptr()) } == -1 {
+        sys::exit(127);
+    }
+    sys::exit(127)
+}
+
+/// Writes `pid` as a NUL-terminated decimal C string into `buf`, which
+/// must hold at least 12 bytes, without allocating.
+fn pid_cstr(pid: u32, buf: &mut [u8; 16]) -> &CStr {
+    let mut end = buf.len() - 1;
+    buf[end] = 0;
+    let mut rest = pid;
+    loop {
+        end -= 1;
+        buf[end] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    CStr::from_bytes_until_nul(&buf[end..]).expect("the digits and the nul byte fit")
 }
 
 /// Waits for PID 1 of the sandbox and ends this process the same way.

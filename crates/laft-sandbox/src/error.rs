@@ -70,6 +70,7 @@ steps! {
     Loopback => "bringing up the loopback interface",
     Session => "starting a session",
     Jobserver => "binding the jobserver pipe into /build",
+    CheckUser => "becoming the check user",
 }
 
 impl Step {

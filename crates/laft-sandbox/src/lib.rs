@@ -11,7 +11,10 @@
 //!   read-only into `/etc`, so that names resolve. An isolated sandbox
 //!   reaches only its own loopback interface, which its `/etc` names
 //!   `localhost`, next to a user database that names `root` and `nobody`.
-//!   It holds nothing of the host.
+//!   It holds nothing of the host. A command that [`Command::check_user`]
+//!   names runs as a second, real user instead of root, whose id the user
+//!   namespace maps through the caller's subordinate ids or, for a root
+//!   caller, a map of its own.
 //! - Assembly runs every fixed program, such as a trigger that computes a
 //!   cache from the tree being assembled, in a [`FixedSandbox`]: the tree
 //!   as `/usr` with only named directories writable, a given configuration
@@ -38,9 +41,11 @@
 //! This crate may use `unsafe` code. It is confined to forking, `unshare`,
 //! `mount_setattr`, `close_range`, signal resets, `kill`, `_exit`, reading
 //! the real, effective and saved ids, and the hook that sets up a sandbox
-//! between `fork` and `exec`, each with the reason it is sound next to it.
+//! between `fork` and `exec`, which for a command with a check user also
+//! runs its id mapping helper, each with the reason it is sound next to it.
 
 mod as_user;
+mod check_user;
 mod enter;
 mod error;
 mod fixed;
@@ -53,6 +58,7 @@ mod sys;
 mod test_support;
 
 pub use as_user::{run_as, run_as_output};
+pub use check_user::{CheckUserEnv, Unavailable, check_user_available, check_user_env};
 pub use enter::{enter_view, private_mount_namespace};
 pub use error::Error;
 pub use fixed::{FixedSandbox, NOBODY};

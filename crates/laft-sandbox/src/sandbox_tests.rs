@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
@@ -589,6 +590,81 @@ fn a_command_leads_a_session_of_its_own_without_a_terminal() {
         return;
     };
     assert_eq!(stdout(&output), "1\nnone\n", "{output:?}");
+}
+
+/// Whether this caller can map the check user, or `false` after printing
+/// why it cannot.
+fn check_user_supported() -> bool {
+    match crate::check_user_available(&crate::check_user_env()) {
+        Ok(()) => true,
+        Err(reason) => {
+            println!("skipping: {reason}");
+            false
+        }
+    }
+}
+
+#[test]
+fn a_command_runs_as_the_check_user_when_the_ids_are_mapped() {
+    if !check_user_supported() {
+        return;
+    }
+    let fixture = Fixture::new();
+    let home = fixture.build().join("home");
+    std::fs::create_dir(&home).unwrap();
+    // The builder opens the work directories of a check user to everyone.
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let script = "id -u; id -g; id -un; cat /proc/self/uid_map; cat /proc/self/gid_map; \
+                  touch /build/home/probe && stat -c %a /build/home/probe";
+    let Some(output) = supported(
+        fixture
+            .sandbox
+            .command("/usr/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .check_user()
+            .stdin(Stdio::null())
+            .output(),
+    ) else {
+        return;
+    };
+    assert!(output.status.success(), "{output:?}");
+    let env = crate::check_user_env();
+    let (uid, gid) = (
+        rustix::process::getuid().as_raw(),
+        rustix::process::getgid().as_raw(),
+    );
+    // The kernel renders each field of a map line ten characters wide.
+    let line = |inside: u32, outside: u32| format!("{inside:>10} {outside:>10} {:>10}\n", 1);
+    let (uid_map, gid_map) = if env.root {
+        (
+            line(0, uid) + &line(100, 100),
+            line(0, gid) + &line(100, 100),
+        )
+    } else {
+        let parse =
+            |content: &str| first_subordinate_of(content, env.user.as_deref().unwrap_or(""));
+        (
+            line(0, uid) + &line(100, parse(&env.subuid).expect("a subordinate uid")),
+            line(0, gid) + &line(100, parse(&env.subgid).expect("a subordinate gid")),
+        )
+    };
+    assert_eq!(
+        stdout(&output),
+        format!("100\n100\ncheck\n{uid_map}{gid_map}666\n"),
+        "{output:?}"
+    );
+}
+
+/// The start of the first subordinate id range of `user` in `content`.
+fn first_subordinate_of(content: &str, user: &str) -> Option<u32> {
+    content.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        let start = fields.next()?.parse().ok()?;
+        fields.next()?;
+        (name == user).then_some(start)
+    })
 }
 
 #[test]
