@@ -233,6 +233,10 @@ struct Package {
   lto:           Bool = false
   ## Run the check phase.
   check:         Bool = true
+  ## Run the check phase as a real non-root user, which test suites that
+  ## refuse root need. The build only starts when the caller can map a
+  ## second id for it.
+  check_user:    Bool = false
   ## Build with more than one job.
   parallel:      Bool = true
   ## Strip ELF files.

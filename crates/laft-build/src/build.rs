@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -812,6 +813,27 @@ impl<'a> Builder<'a> {
         own.chain(self.mirrors.iter().cloned()).collect()
     }
 
+    /// Refuses with `B046` when the check phase of `recipe` runs as the
+    /// check user and the caller cannot map a second id for it.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `B046` when the ids cannot be mapped.
+    fn check_user_available(&self, recipe: &Recipe) -> Result<(), BuildError> {
+        if self.check
+            && recipe.options.check
+            && recipe.options.check_user
+            && !matches!(self.mode, Mode::Bootstrap(_))
+            && let Err(reason) = laft_sandbox::check_user_available(&laft_sandbox::check_user_env())
+        {
+            return Err(BuildError::problem(
+                "B046",
+                format!("the ids a check phase needs cannot be mapped: {reason}"),
+            ));
+        }
+        Ok(())
+    }
+
     /// Builds `recipe`, whose build key covers `inputs`, as the type
     /// documentation describes. The build view is assembled from `entries`
     /// when they are given, instead of from the store, so that a stage
@@ -822,14 +844,16 @@ impl<'a> Builder<'a> {
     ///
     /// Fails with the code of the step that failed: `B02x` for sources,
     /// `B030` for a phase that ran out of time, `B040` for a phase that
-    /// failed, `B050` for a view that cannot be resolved, and the codes of
-    /// [`post`]. A failed build keeps its working tree.
+    /// failed, `B046` when a check user cannot be mapped, `B050` for a
+    /// view that cannot be resolved, and the codes of [`post`]. A failed
+    /// build keeps its working tree.
     pub fn build(
         &self,
         recipe: &Recipe,
         inputs: &KeyInputs,
         entries: Option<&[StoreEntry]>,
     ) -> Result<Outcome, BuildError> {
+        self.check_user_available(recipe)?;
         let started = Timestamp::now();
         let session = self.session(recipe, &inputs.build_key(), entries)?;
         self.phases(&session, recipe, None)?;
@@ -970,6 +994,16 @@ impl<'a> Builder<'a> {
         ] {
             let path = build.join(sub);
             fs::create_dir_all(&path).map_err(io(&path))?;
+        }
+        if self.check
+            && recipe.options.check
+            && recipe.options.check_user
+            && !matches!(self.mode, Mode::Bootstrap(_))
+        {
+            for sub in ["src", "obj", "tmp", "home"] {
+                let path = build.join(sub);
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o777)).map_err(io(&path))?;
+            }
         }
         for path in [&out, &scratch] {
             fs::create_dir_all(path).map_err(io(path))?;
@@ -1160,7 +1194,11 @@ impl<'a> Builder<'a> {
             } else {
                 &session.env
             };
-            session.exec.run(name, &script, env)?;
+            if name == "check" && recipe.options.check_user {
+                session.exec.run_as_check_user(name, &script, env)?;
+            } else {
+                session.exec.run(name, &script, env)?;
+            }
             if until == Some(name) {
                 break;
             }

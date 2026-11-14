@@ -382,54 +382,67 @@ offline = true
 EOF";
 
 /// Folds the recipe's replacements and hooks into the style's scripts and
-/// adds the common header to every phase that runs anything.
+/// adds the common header to every phase that runs anything. The check
+/// phase of a recipe with `check_user` keeps the file mode the sandbox's
+/// check user creates files with, so that the caller can clean them up.
 pub(crate) fn phases(
     style: Scripts,
     recipe: &schema::Phases,
     subdir: &str,
     shell: Shell,
+    check_user: bool,
 ) -> Phases {
     let header = format!("{}umask 022\ncd \"{}\"\n", shell.header(), src_dir(subdir));
-    let render = |pre: Option<&String>, script: Option<String>, post: Option<&String>| {
-        let parts: Vec<&str> = [
-            pre.map(String::as_str),
-            script.as_deref(),
-            post.map(String::as_str),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|p| p.trim_end_matches('\n'))
-        .filter(|p| !p.trim().is_empty())
-        .collect();
-        (!parts.is_empty()).then(|| format!("{header}{}\n", parts.join("\n")))
+    let check_header = if check_user {
+        format!("{}umask 0000\ncd \"{}\"\n", shell.header(), src_dir(subdir))
+    } else {
+        header.clone()
     };
+    let render =
+        |header: &str, pre: Option<&String>, script: Option<String>, post: Option<&String>| {
+            let parts: Vec<&str> = [
+                pre.map(String::as_str),
+                script.as_deref(),
+                post.map(String::as_str),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|p| p.trim_end_matches('\n'))
+            .filter(|p| !p.trim().is_empty())
+            .collect();
+            (!parts.is_empty()).then(|| format!("{header}{}\n", parts.join("\n")))
+        };
     let pick = |replacement: &Option<String>, style: Option<String>| match replacement {
         Some(script) => Some(script.clone()),
         None => style,
     };
     Phases {
-        prepare: render(None, pick(&recipe.prepare, style.prepare), None),
+        prepare: render(&header, None, pick(&recipe.prepare, style.prepare), None),
         configure: render(
+            &header,
             recipe.pre_configure.as_ref(),
             pick(&recipe.configure, style.configure),
             recipe.post_configure.as_ref(),
         ),
         build: render(
+            &header,
             recipe.pre_build.as_ref(),
             pick(&recipe.build, style.build),
             recipe.post_build.as_ref(),
         ),
         check: render(
+            &check_header,
             recipe.pre_check.as_ref(),
             pick(&recipe.check, style.check),
             recipe.post_check.as_ref(),
         ),
         install: render(
+            &header,
             recipe.pre_install.as_ref(),
             pick(&recipe.install, style.install),
             None,
         ),
-        post_install: render(None, recipe.post_install.clone(), None),
+        post_install: render(&header, None, recipe.post_install.clone(), None),
     }
 }
 

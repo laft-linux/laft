@@ -55,7 +55,7 @@ fn hooks_run_around_the_style_script_in_one_shell() {
         post_install: Some("rm -r \"$DESTDIR/usr/share/foo\"\n".into()),
         ..no_phases()
     };
-    let phases = phases(style, &recipe, "src", Shell::Sh);
+    let phases = phases(style, &recipe, "src", Shell::Sh, false);
     let header = "#!/bin/sh\nset -eu\numask 022\ncd \"$SRC/src\"\n";
     assert_eq!(
         phases.build.as_deref(),
@@ -86,6 +86,7 @@ fn the_custom_style_runs_only_what_the_recipe_sets() {
         &recipe,
         "",
         Shell::Sh,
+        false,
     );
     let ran: Vec<&str> = phases
         .iter()
@@ -279,7 +280,7 @@ fn rendered_scripts_have_no_dead_branches_or_empty_path_segments() {
     let style = scripts(&build, &input(Variant::Dynamic));
     assert_eq!(style.configure.as_deref(), Some("\"$SRC/configure\""));
     assert_eq!(style.build.as_deref(), Some("make"));
-    let rendered = phases(style, &no_phases(), "", Shell::Sh);
+    let rendered = phases(style, &no_phases(), "", Shell::Sh, false);
     assert_eq!(
         rendered.build.as_deref(),
         Some("#!/bin/sh\nset -eu\numask 022\ncd \"$SRC\"\nmake\n")
@@ -292,7 +293,7 @@ fn rendered_scripts_have_no_dead_branches_or_empty_path_segments() {
         },
     );
     assert_eq!(style.configure.as_deref(), Some("\"$SRC/unix/configure\""));
-    let rendered = phases(style, &no_phases(), "unix", Shell::Sh);
+    let rendered = phases(style, &no_phases(), "unix", Shell::Sh, false);
     assert!(
         rendered
             .configure
@@ -311,6 +312,7 @@ fn a_bash_recipe_gets_the_bash_header() {
         &recipe,
         "",
         Shell::Bash,
+        false,
     );
     assert_eq!(
         phases.build.as_deref(),
@@ -385,6 +387,7 @@ fn every_style_renders_posix_shell() {
                 &no_phases(),
                 "",
                 Shell::Sh,
+                false,
             );
             for (name, script) in rendered.iter() {
                 let Some(script) = script else { continue };

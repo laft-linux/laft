@@ -58,6 +58,7 @@ One upstream project built into one or more packages. Block label: the package n
 | `hardening_disable` | `Set<Hardening>` | `[]` | Default hardening to turn off. |
 | `lto` | `Bool` | `false` | Link time optimization. |
 | `check` | `Bool` | `true` | Run the check phase. |
+| `check_user` | `Bool` | `false` | Run the check phase as the sandbox's check user, which test suites that refuse root need. The build only starts when the caller can map a second id for it. |
 | `parallel` | `Bool` | `true` | Build with more than one job. |
 | `strip` | `Bool` | `true` | Strip ELF files. |
 | `debug_split` | `Bool` | `true` | Split debug info into the -dbg subpackage. |

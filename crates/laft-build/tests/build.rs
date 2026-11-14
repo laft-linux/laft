@@ -1163,6 +1163,54 @@ fn the_check_phase_installs_nothing_into_the_packages() {
     }
 }
 
+/// A recipe that opts in runs its check phase as the sandbox's check user,
+/// which needs the caller to be able to map a second id.
+#[test]
+fn a_check_user_recipe_runs_its_check_phase_as_the_check_user() {
+    let dir = laft_test::tempdir();
+    if let Some(reason) = unsupported(dir.path()) {
+        println!("skipping: {reason}");
+        return;
+    }
+    if let Err(reason) = laft_sandbox::check_user_available(&laft_sandbox::check_user_env()) {
+        println!("skipping: {reason}");
+        return;
+    }
+    let repos = repos_with(
+        dir.path(),
+        "  check_user = true\n  build make {}\n  phases {\n    check = \"test \\\"$(id -u)\\\" = 100 \
+         && test \\\"$(id -g)\\\" = 100 && test \\\"$(id -un)\\\" = check\"\n  }",
+    );
+    let recipe: Recipe = support::evaluate(&repos, "hello").remove(0);
+    let (root, cache) = offline_cache(dir.path());
+    let builder = Builder::new(&repos, &cache, &root, Mode::View("/usr".into()));
+    let inputs = builder.key_inputs(&recipe).unwrap();
+    if let Err(e) = builder.build(&recipe, &inputs, None) {
+        panic!("the build fails: {e}");
+    }
+}
+
+/// Without the opt-in, the check phase keeps running as root.
+#[test]
+fn a_recipe_without_the_opt_in_runs_its_check_phase_as_root() {
+    let dir = laft_test::tempdir();
+    if let Some(reason) = unsupported(dir.path()) {
+        println!("skipping: {reason}");
+        return;
+    }
+    let repos = repos_with(
+        dir.path(),
+        "  build make {}\n  phases {\n    check = \"test \\\"$(id -u)\\\" = 0\"\n  }",
+    );
+    let recipe: Recipe = support::evaluate(&repos, "hello").remove(0);
+    let (root, cache) = offline_cache(dir.path());
+    let builder = Builder::new(&repos, &cache, &root, Mode::View("/usr".into()));
+    let inputs = builder.key_inputs(&recipe).unwrap();
+    if let Err(e) = builder.build(&recipe, &inputs, None) {
+        panic!("the build fails: {e}");
+    }
+}
+
 /// A build of an options recipe with its defaults and with each option
 /// changed: every option set is its own package with its own store id,
 /// and every package records the values it was built with.

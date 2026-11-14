@@ -47,6 +47,7 @@ pub(crate) fn recipe(item: &str) -> Recipe {
         env: BTreeMap::new(),
         options: BuildOptions {
             check: true,
+            check_user: false,
             parallel: true,
             strip: true,
             debug_split: true,

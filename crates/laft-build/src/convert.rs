@@ -163,6 +163,7 @@ pub(crate) fn convert(cx: &mut Cx<'_>, p: schema::Package) -> Option<Recipe> {
 
     let kernel = matches!(p.build, Build::Kernel { .. });
     let check = p.check && !kernel;
+    let check_user = p.check_user && !kernel;
     let debug_split = p.debug_split && !kernel;
     let cgo = matches!(p.build, Build::Go { cgo: true, .. });
     let style = style::scripts(
@@ -179,7 +180,7 @@ pub(crate) fn convert(cx: &mut Cx<'_>, p: schema::Package) -> Option<Recipe> {
     );
     // The kernel's own build scripts need bash.
     let shell = if kernel { Shell::Bash } else { p.shell };
-    let phases = style::phases(style, &p.phases, &subdir, shell);
+    let phases = style::phases(style, &p.phases, &subdir, shell, check_user);
 
     let mut env = env::environment(&EnvInput {
         name: &name,
@@ -298,6 +299,7 @@ pub(crate) fn convert(cx: &mut Cx<'_>, p: schema::Package) -> Option<Recipe> {
         option_values: BTreeMap::new(),
         options: BuildOptions {
             check,
+            check_user,
             parallel: p.parallel,
             strip: p.strip,
             debug_split,

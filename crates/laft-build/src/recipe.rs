@@ -361,6 +361,12 @@ impl Phases {
 pub struct BuildOptions {
     /// Run the check phase.
     pub check: bool,
+    /// Run the check phase as the sandbox's check user, which test suites
+    /// that refuse root need. A recipe that does not set it serializes
+    /// without the switch, so packages that do not opt in keep their plan
+    /// hash and their store ids.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub check_user: bool,
     /// Build with more than one job.
     pub parallel: bool,
     /// Strip ELF files.

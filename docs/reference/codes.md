@@ -161,6 +161,8 @@ Fetching and unpacking sources:
 | `B042` | A stage root whose top-level entries differ from Laft's layout, or a `laft-build` that is not a static ELF executable for a step inside the root. |
 | `B043` | A payload path that is a directory in a package and something else in the system it is unpacked into, or the other way round. |
 | `B044` | A recipe file that changed since evaluation or cannot be read, a license file that is missing or outside the source tree, a build record, lock record, stage record or reproducibility report that cannot be read or serialized, an install or stage record that is neither a build key line nor a build key record of a format this version reads, or a `/proc/meminfo` without a `MemAvailable` line. |
+| `B045` | A run that SIGINT or SIGTERM stopped. |
+| `B046` | The ids a check phase needs cannot be mapped. |
 | `B050` | A build view that the build-side store cannot satisfy. |
 | `B060` | A reproducibility check of a package without a successful build. |
 | `B061` | A reproducibility check with a package that differs or could not be checked. |

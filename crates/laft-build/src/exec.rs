@@ -216,7 +216,24 @@ impl Executor {
         script: &str,
         env: &BTreeMap<String, String>,
     ) -> Result<(), BuildError> {
-        self.run_with(phase, script, env, Network::Isolated)
+        self.run_with(phase, script, env, Network::Isolated, false)
+    }
+
+    /// Runs `script` like [`Executor::run`], but as the sandbox's check
+    /// user instead of root, which the sandbox maps and names. In
+    /// bootstrap mode, which has no sandbox and never runs a check phase,
+    /// it runs like [`Executor::run`].
+    ///
+    /// # Errors
+    ///
+    /// Fails like [`Executor::run`].
+    pub fn run_as_check_user(
+        &self,
+        phase: &str,
+        script: &str,
+        env: &BTreeMap<String, String>,
+    ) -> Result<(), BuildError> {
+        self.run_with(phase, script, env, Network::Isolated, true)
     }
 
     /// Runs `script` like [`Executor::run`], but with the host's network,
@@ -231,7 +248,7 @@ impl Executor {
         script: &str,
         env: &BTreeMap<String, String>,
     ) -> Result<(), BuildError> {
-        self.run_with(phase, script, env, Network::Host)
+        self.run_with(phase, script, env, Network::Host, false)
     }
 
     /// Runs the program `program` of the view's `/usr/bin` with `args` and
@@ -296,6 +313,7 @@ impl Executor {
         script: &str,
         env: &BTreeMap<String, String>,
         network: Network,
+        as_check_user: bool,
     ) -> Result<(), BuildError> {
         fs::create_dir_all(&self.logs).map_err(io(&self.logs))?;
         let log_path = self.logs.join(format!("{phase}.log"));
@@ -314,6 +332,11 @@ impl Executor {
                     .arg("-c")
                     .arg(script)
                     .arg(phase);
+                let command = if as_check_user {
+                    command.check_user()
+                } else {
+                    command
+                };
                 env.iter()
                     .fold(command, |c, (k, v)| c.env(k, v))
                     .stdin(Stdio::null())

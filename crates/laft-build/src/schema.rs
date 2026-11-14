@@ -85,6 +85,7 @@ pub(crate) struct Package {
     pub(crate) hardening_disable: Vec<Hardening>,
     pub(crate) lto: bool,
     pub(crate) check: bool,
+    pub(crate) check_user: bool,
     pub(crate) parallel: bool,
     pub(crate) strip: bool,
     pub(crate) debug_split: bool,

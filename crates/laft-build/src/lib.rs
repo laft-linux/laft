@@ -111,6 +111,7 @@
 //! | `B040` | a phase or tool that failed |
 //! | `B041` | an installation or unpacking into a directory outside bootstrap mode |
 //! | `B045` | a run that SIGINT or SIGTERM stopped |
+//! | `B046` | ids a check phase needs that cannot be mapped |
 //! | `B042` | a stage root whose top-level entries differ from Laft's layout, or a `laft-build` that is not a static ELF executable for a step inside the root |
 //! | `B043` | a payload path that is a directory in a package and something else in the system it is unpacked into, or the other way round |
 //! | `B044` | a recipe file that changed since evaluation or cannot be read, a license file that is missing or outside the source tree, a build record, lock record, stage record or reproducibility report that cannot be read or serialized, an install or stage record that is neither a build key line nor a build key record of a format this version reads, or a `/proc/meminfo` without a `MemAvailable` line |

@@ -53,9 +53,10 @@ impl BuildError {
     }
 
     /// Whether the failure lies in the machine rather than in the recipe,
-    /// such as a kernel that refuses the sandbox.
+    /// such as a kernel that refuses the sandbox or ids a check phase
+    /// needs that cannot be mapped.
     pub fn is_environment(&self) -> bool {
-        matches!(self, Self::Sandbox(_))
+        matches!(self, Self::Sandbox(_)) || self.code() == Some("B046")
     }
 
     /// Whether a sandbox failed the way a kernel or a security policy
