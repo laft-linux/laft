@@ -13,7 +13,9 @@ use rustix::io::Errno;
 
 use crate::error::Step;
 use crate::test_support::sandbox_refused;
-use crate::{Command, Error, MAX_OPEN_FILES, Network, Sandbox};
+use crate::{Command, Error, FixedSandbox, MAX_OPEN_FILES, Network, RootSandbox, Sandbox};
+
+use super::{IdMap, Layout, Setup};
 
 /// A sandbox whose view is the host's `/usr`, bound read-only, so that real
 /// programs run inside. Its `/build` and `/out` are temporary directories.
@@ -665,6 +667,45 @@ fn first_subordinate_of(content: &str, user: &str) -> Option<u32> {
         fields.next()?;
         (name == user).then_some(start)
     })
+}
+
+/// A check user command of a sandbox that is not a build sandbox maps no
+/// check user id: the layout has no check user, so the command needs
+/// neither helpers nor subordinate ids, whatever the host provides.
+#[test]
+fn a_check_user_command_of_another_layout_maps_no_check_user_id() {
+    let dir = laft_test::tempdir();
+    std::fs::create_dir_all(dir.path().join("tree/usr")).unwrap();
+    std::fs::create_dir(dir.path().join("etc")).unwrap();
+    let fixed = FixedSandbox::new(dir.path().join("tree"), dir.path().join("etc"));
+    let setup = Setup::new(&Layout::Fixed(fixed), true).expect("the fixed layout sets up");
+    no_check_user_id(&setup.id_maps, "fixed");
+    let root = RootSandbox::new(dir.path().join("root"));
+    let setup = Setup::new(&Layout::Root(root), true).expect("the root layout sets up");
+    no_check_user_id(&setup.id_maps, "root");
+}
+
+/// Asserts that the id maps of a setup name no second id: the caller's own
+/// single line, or no map at all when the sandbox keeps the caller's ids.
+fn no_check_user_id(id_maps: &Option<IdMap>, layout: &str) {
+    match id_maps {
+        None => {}
+        Some(IdMap::Own(uid_map, gid_map)) => {
+            assert_eq!(
+                uid_map.iter().filter(|b| **b == b'\n').count(),
+                1,
+                "{layout}: {uid_map:?}"
+            );
+            assert_eq!(
+                gid_map.iter().filter(|b| **b == b'\n').count(),
+                1,
+                "{layout}: {gid_map:?}"
+            );
+        }
+        Some(IdMap::Helpers(..)) => {
+            panic!("the {layout} layout maps no check user, but ids were mapped through helpers")
+        }
+    }
 }
 
 #[test]

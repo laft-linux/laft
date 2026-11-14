@@ -257,7 +257,8 @@ impl Command {
     /// `newuidmap` and `newgidmap` when the caller is not root, or a map
     /// the sandbox child writes itself when it is. The check user leaves
     /// every file it creates open to everyone, so that the caller can
-    /// clean up after the build. It has an effect only in a build sandbox.
+    /// clean up after the build. It has an effect only in a build sandbox;
+    /// the other layouts run the command as they would without it.
     pub fn check_user(mut self) -> Self {
         self.check_user = true;
         self
@@ -498,18 +499,22 @@ impl Setup {
         let id_maps = user_namespace
             .then(|| {
                 namespaces |= UnshareFlags::NEWUSER;
-                match (check_user, uid == 0) {
-                    (false, _) => Ok(IdMap::Own(
-                        format!("{inside} {uid} 1\n").into_bytes(),
-                        format!("{inside} {gid} 1\n").into_bytes(),
-                    )),
-                    (true, true) => Ok(IdMap::Own(
+                match (layout, check_user, uid == 0) {
+                    // Only the build sandbox has a check user, so only it
+                    // maps a second id for one.
+                    (Layout::Build(_), true, true) => Ok(IdMap::Own(
                         format!("0 {uid} 1\n{CHECK_ID} {CHECK_ID} 1\n").into_bytes(),
                         format!("0 {gid} 1\n{CHECK_ID} {CHECK_ID} 1\n").into_bytes(),
                     )),
-                    (true, false) => helper_calls(uid, gid).map(|(uid_call, gid_call)| {
-                        IdMap::Helpers(Box::new(uid_call), Box::new(gid_call))
-                    }),
+                    (Layout::Build(_), true, false) => {
+                        helper_calls(uid, gid).map(|(uid_call, gid_call)| {
+                            IdMap::Helpers(Box::new(uid_call), Box::new(gid_call))
+                        })
+                    }
+                    _ => Ok(IdMap::Own(
+                        format!("{inside} {uid} 1\n").into_bytes(),
+                        format!("{inside} {gid} 1\n").into_bytes(),
+                    )),
                 }
             })
             .transpose()?;
