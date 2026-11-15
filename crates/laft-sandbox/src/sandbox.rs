@@ -52,6 +52,11 @@ const HOST_ETC: [(&CStr, &CStr); 3] = [
     (c"/etc/nsswitch.conf", c"nsswitch.conf"),
 ];
 
+/// The host directories bound into `/etc` with [`Network::Host`], when the
+/// host has them. `/etc/ssl` holds the trust anchors that make a TLS
+/// download of a fetch phase verify.
+const HOST_ETC_DIRS: [(&CStr, &CStr); 1] = [(c"/etc/ssl", c"ssl")];
+
 const ROOT_DIRS: [&CStr; 7] = [c"usr", c"build", c"out", c"proc", c"dev", c"tmp", c"etc"];
 
 /// The uid and gid of the check user, which a command that
@@ -111,10 +116,11 @@ pub enum Network {
     Isolated,
     /// The caller's network namespace, for the phase that fetches sources.
     ///
-    /// So that names resolve, the host's `/etc/resolv.conf`, `/etc/hosts`
-    /// and `/etc/nsswitch.conf` are bound read-only into the read-only
-    /// `/etc`, next to the user database. A file the host lacks is left
-    /// out.
+    /// So that names resolve and downloads verify, the host's
+    /// `/etc/resolv.conf`, `/etc/hosts` and `/etc/nsswitch.conf`, and its
+    /// `/etc/ssl` with the trust of its certificate authorities, are bound
+    /// read-only into the read-only `/etc`, next to the user database. A
+    /// file the host lacks is left out.
     Host,
 }
 
@@ -138,7 +144,7 @@ pub enum Network {
 /// | `/proc` | a new procfs that shows only the sandbox's processes |
 /// | `/dev` | a read-only tmpfs with `null`, `zero`, `full`, `random`, `urandom` and `tty` bound from the host, `fd`, `stdin`, `stdout`, `stderr` links, a private pseudo-terminal filesystem at `pts` with `ptmx` linking to its multiplexer, and a private tmpfs at `shm` |
 /// | `/tmp` | a private tmpfs |
-/// | `/etc` | read-only, with `passwd` and `group` naming `root` and `nobody`, and with the sandbox's check user when a command runs as it, and `hosts` and `nsswitch.conf` naming the loopback interface `localhost` or, with [`Network::Host`], the host's name resolution files |
+/// | `/etc` | read-only, with `passwd` and `group` naming `root` and `nobody`, and with the sandbox's check user when a command runs as it, and `hosts` and `nsswitch.conf` naming the loopback interface `localhost` or, with [`Network::Host`], the host's name resolution files and certificate trust |
 ///
 /// Before the command is executed, its capability bounding set is emptied,
 /// `no_new_privs` is set, the core size limit is 0 and the open file limit
@@ -854,8 +860,9 @@ fn write_etc(root: &OwnedFd, files: &[(&CStr, &[u8])]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Binds each file of [`HOST_ETC`] the host has into `/etc` of `root`,
-/// read-only. The directory becomes read-only with the root.
+/// Binds each file of [`HOST_ETC`] and each directory of [`HOST_ETC_DIRS`]
+/// that the host has into `/etc` of `root`, read-only. The directory
+/// becomes read-only with the root.
 fn mount_host_etc(root: &OwnedFd) -> Result<(), Failure> {
     let etc = rustix::fs::openat(
         root,
@@ -865,24 +872,9 @@ fn mount_host_etc(root: &OwnedFd) -> Result<(), Failure> {
     )
     .map_err(fail(Step::Populate))?;
     for (source, name) in HOST_ETC {
-        let file = match rustix::mount::open_tree(
-            CWD,
-            source,
-            OpenTreeFlags::OPEN_TREE_CLONE | OpenTreeFlags::OPEN_TREE_CLOEXEC,
-        ) {
-            Ok(file) => file,
-            Err(Errno::NOENT) => continue,
-            Err(errno) => return Err((Step::MountEtc, errno)),
+        let Some(file) = host_tree(source)? else {
+            continue;
         };
-        sys::mount_setattr(
-            file.as_fd(),
-            MountAttrFlags::MOUNT_ATTR_RDONLY
-                | MountAttrFlags::MOUNT_ATTR_NOSUID
-                | MountAttrFlags::MOUNT_ATTR_NODEV
-                | MountAttrFlags::MOUNT_ATTR_NOEXEC,
-            MountAttrFlags::empty(),
-        )
-        .map_err(fail(Step::MountEtc))?;
         rustix::fs::openat(
             &etc,
             name,
@@ -892,7 +884,39 @@ fn mount_host_etc(root: &OwnedFd) -> Result<(), Failure> {
         .map_err(fail(Step::MountEtc))?;
         attach(&file, &etc, name)?;
     }
+    for (source, name) in HOST_ETC_DIRS {
+        let Some(dir) = host_tree(source)? else {
+            continue;
+        };
+        rustix::fs::mkdirat(&etc, name, Mode::from_raw_mode(0o755))
+            .map_err(fail(Step::MountEtc))?;
+        attach(&dir, &etc, name)?;
+    }
     Ok(())
+}
+
+/// Clones `source` of the host with `open_tree` and makes it read-only, or
+/// `None` when the host lacks it.
+fn host_tree(source: &CStr) -> Result<Option<OwnedFd>, Failure> {
+    let tree = match rustix::mount::open_tree(
+        CWD,
+        source,
+        OpenTreeFlags::OPEN_TREE_CLONE | OpenTreeFlags::OPEN_TREE_CLOEXEC,
+    ) {
+        Ok(tree) => tree,
+        Err(Errno::NOENT) => return Ok(None),
+        Err(errno) => return Err((Step::MountEtc, errno)),
+    };
+    sys::mount_setattr(
+        tree.as_fd(),
+        MountAttrFlags::MOUNT_ATTR_RDONLY
+            | MountAttrFlags::MOUNT_ATTR_NOSUID
+            | MountAttrFlags::MOUNT_ATTR_NODEV
+            | MountAttrFlags::MOUNT_ATTR_NOEXEC,
+        MountAttrFlags::empty(),
+    )
+    .map_err(fail(Step::MountEtc))?;
+    Ok(Some(tree))
 }
 
 fn write_proc(path: &CStr, data: &[u8]) -> Result<(), Failure> {

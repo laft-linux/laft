@@ -471,6 +471,9 @@ fn host_network_sees_only_the_host_name_resolution_files() {
         }
     }
     let mut listed: Vec<&str> = present.iter().copied().chain(["group", "passwd"]).collect();
+    if Path::new("/etc/ssl").is_dir() {
+        listed.push("ssl");
+    }
     listed.sort_unstable();
     for name in listed {
         expected.push_str(&format!("{name}\n"));
@@ -505,6 +508,38 @@ fn host_network_sees_only_the_host_name_resolution_files() {
         stdout(&output),
         "127.0.0.1 localhost\n::1 localhost\n",
         "an isolated sandbox has none of the host's files"
+    );
+}
+
+#[test]
+fn host_network_binds_the_host_ca_trust() {
+    let fixture = Fixture::new();
+    let Ok(bundle) = std::fs::read("/etc/ssl/certs/ca-certificates.crt") else {
+        println!("skipping: the host has no CA bundle");
+        return;
+    };
+    let host = fixture.sandbox.clone().network(Network::Host);
+    let script = "cat /etc/ssl/certs/ca-certificates.crt; cat /proc/self/mountinfo >&2; \
+                  touch /etc/ssl/laft-probe";
+    let command = host.command("/usr/bin/sh").arg("-c").arg(script);
+    let Some(output) = supported(command.output()) else {
+        return;
+    };
+    assert_eq!(
+        stdout(&output).as_bytes(),
+        bundle,
+        "the sandbox sees the host bundle"
+    );
+    let errors = String::from_utf8(output.stderr).unwrap();
+    assert!(errors.contains("Read-only file system"), "{errors}");
+    let mount = errors
+        .lines()
+        .find(|line| line.split(' ').nth(4) == Some("/etc/ssl"))
+        .unwrap_or_else(|| panic!("no /etc/ssl mount in {errors}"));
+    let options: BTreeSet<&str> = mount.split(' ').nth(5).unwrap().split(',').collect();
+    assert!(
+        options.is_superset(&BTreeSet::from(["ro", "nosuid", "nodev"])),
+        "{mount}"
     );
 }
 

@@ -7,8 +7,10 @@
 //!   only the build view as `/usr` plus fixed writable `/build` and `/out`
 //!   directories, no capabilities and `no_new_privs`. The phase that fetches
 //!   sources keeps the host network with [`Network::Host`], which also binds
-//!   the host's `/etc/resolv.conf`, `/etc/hosts` and `/etc/nsswitch.conf`
-//!   read-only into `/etc`, so that names resolve. An isolated sandbox
+//!   the host's `/etc/resolv.conf`, `/etc/hosts` and `/etc/nsswitch.conf`,
+//!   and its `/etc/ssl` with the trust of its certificate authorities,
+//!   read-only into `/etc`, so that names resolve and downloads verify. An
+//!   isolated sandbox
 //!   reaches only its own loopback interface, which its `/etc` names
 //!   `localhost`, next to a user database that names `root` and `nobody`.
 //!   It holds nothing of the host. A command that [`Command::check_user`]
