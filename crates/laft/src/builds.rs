@@ -1279,13 +1279,27 @@ pub(crate) fn readable_by_build_account(dir: &Path) -> Result<(), Failure> {
     let uid = rustix::process::Uid::from_raw(BUILD_UID);
     let gid = rustix::process::Gid::from_raw(BUILD_GID);
     let root = rustix::process::getuid().is_root();
+    // Inside a build sandbox this process is root of a user namespace
+    // that maps no build account, and chown reports that as EINVAL,
+    // which real root never sees for any id. Ownership there stays with
+    // the sandbox account, which the permissions below already make the
+    // tree readable for.
+    let chown = |path: &Path| -> Result<(), Failure> {
+        match rustix::fs::chown(path, Some(uid), Some(gid)) {
+            Ok(()) => Ok(()),
+            Err(rustix::io::Errno::INVAL) => Ok(()),
+            Err(e) => Err(Failure::new(
+                exit::FAILURE,
+                format!("{}: {e}", path.display()),
+            )),
+        }
+    };
     let mut stack = vec![dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o755))
             .map_err(|e| Failure::new(exit::FAILURE, format!("{}: {e}", dir.display())))?;
         if root {
-            rustix::fs::chown(&dir, Some(uid), Some(gid))
-                .map_err(|e| Failure::new(exit::FAILURE, format!("{}: {e}", dir.display())))?;
+            chown(&dir)?;
         }
         for entry in fs::read_dir(&dir)
             .map_err(|e| Failure::new(exit::FAILURE, format!("{}: {e}", dir.display())))?
@@ -1305,9 +1319,7 @@ pub(crate) fn readable_by_build_account(dir: &Path) -> Result<(), Failure> {
                 fs::set_permissions(&path, fs::Permissions::from_mode(mode & 0o777))
                     .map_err(|e| Failure::new(exit::FAILURE, format!("{}: {e}", path.display())))?;
                 if root {
-                    rustix::fs::chown(&path, Some(uid), Some(gid)).map_err(|e| {
-                        Failure::new(exit::FAILURE, format!("{}: {e}", path.display()))
-                    })?;
+                    chown(&path)?;
                 }
             }
         }
