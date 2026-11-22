@@ -138,16 +138,16 @@ Between recipes, and while planning:
 
 ## Sources
 
-Fetching and unpacking sources:
+Fetching and unpacking sources, vendored trees and recipe snapshots:
 
 | Code | Problem |
 |---|---|
-| `B020` | A location served a file whose SHA-256 hash differs from the recipe's. |
-| `B021` | An archive entry or link that leads outside its destination. |
+| `B020` | A fetched or vendored file whose SHA-256 hash differs from the recipe's. |
+| `B021` | An archive entry that breaks the extraction rules, such as one that leaves the destination, replaces a directory, or is written through a link. |
 | `B022` | No URL and no mirror has the file. |
-| `B023` | A local file that cannot be read or written. |
-| `B024` | An archive that cannot be read. |
-| `B025` | A vendored tree that holds a device, FIFO or socket. |
+| `B023` | A local file that cannot be read or written, or a destination or file name that is not a plain relative path. |
+| `B024` | An archive that cannot be read, one that exceeds its unpacking entry or size bound, one with a symbolic link target longer than a path may hold, or a file asked to extract that is no known archive format. |
+| `B025` | A vendored tree or recipe snapshot that holds a device, FIFO, socket, a path that is not a plain relative path, or a symlink target the archive cannot represent; a recipe snapshot also refuses hard links and sparse entries. |
 
 ## Builds
 

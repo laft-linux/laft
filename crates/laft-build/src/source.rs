@@ -15,8 +15,9 @@ use crate::{Fetch, Recipe, Source};
 /// Why a source could not be fetched or placed in the source tree.
 #[derive(Debug)]
 pub enum SourceError {
-    /// `B020`: a URL served a file with another hash. Other URLs are not
-    /// tried, because a wrong file at a primary URL is worth stopping for.
+    /// `B020`: a fetched or vendored file has another hash. Other URLs
+    /// are not tried, because a wrong file at a primary URL is worth
+    /// stopping for.
     Mismatch {
         /// The source, for example `source "main" of zlib 1.3.1`.
         what: String,
@@ -27,8 +28,9 @@ pub enum SourceError {
         /// The hash of what arrived.
         actual: Sha256Hash,
     },
-    /// `B021`: an archive entry that would land outside the destination,
-    /// or a link that leads there.
+    /// `B021`: an archive entry that breaks the extraction rules, such
+    /// as one that leaves the destination, replaces a directory, or is
+    /// written through a link.
     Unsafe {
         /// The archive.
         archive: PathBuf,
@@ -45,14 +47,17 @@ pub enum SourceError {
         /// The failure of every location.
         attempts: Vec<laft_fetch::Error>,
     },
-    /// `B023`: reading or writing a local file failed.
+    /// `B023`: a local file that cannot be read or written, or a
+    /// destination or file name that is not a plain relative path.
     Io {
         /// The file or directory.
         path: PathBuf,
         /// The underlying error.
         error: io::Error,
     },
-    /// `B024`: an archive that cannot be read.
+    /// `B024`: an archive that cannot be read, one with a symbolic
+    /// link target longer than a path may hold, or a file asked to
+    /// extract that is no known archive format.
     Unsupported {
         /// The source or the archive.
         what: String,
@@ -122,7 +127,7 @@ pub(crate) fn io_error(path: &Path) -> impl Fn(io::Error) -> SourceError + '_ {
 ///
 /// A file enters the cache only once its hash is verified, so the cache
 /// never holds a file under a wrong name. Partial downloads live in
-/// `tmp/` and are removed on every failure.
+/// `tmp/` and are removed on every failed download.
 ///
 /// ```no_run
 /// use laft_build::SourceCache;
@@ -179,7 +184,7 @@ impl SourceCache {
     /// Fails with [`SourceError::Mismatch`] as soon as one location serves
     /// a file with another hash, which is deleted, with
     /// [`SourceError::Unavailable`] when no location has the file, and
-    /// with [`SourceError::Io`] when the cache cannot be written.
+    /// with [`SourceError::Io`] when the cache cannot be read or written.
     pub fn fetch(
         &self,
         what: &str,

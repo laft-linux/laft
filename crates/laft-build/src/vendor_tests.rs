@@ -113,7 +113,7 @@ fn a_symlink_leaving_the_tree_is_refused_when_packed() {
     std::os::unix::fs::symlink("../outside", root.join("a/escape.rs")).unwrap();
     let file = dir.path().join("v.tar");
     let e = normalized_tarball(&root, &file).unwrap_err();
-    assert_eq!(e.code(), Some("B024"));
+    assert_eq!(e.code(), Some("B025"));
     assert!(e.to_string().contains("../outside"), "{}", e);
 }
 
@@ -130,7 +130,7 @@ fn a_symlink_target_too_long_for_the_archive_is_refused_when_packed() {
     std::os::unix::fs::symlink(&target, root.join("a/alias.rs")).unwrap();
     let file = dir.path().join("v.tar");
     let e = normalized_tarball(&root, &file).unwrap_err();
-    assert_eq!(e.code(), Some("B024"));
+    assert_eq!(e.code(), Some("B025"));
     assert!(e.to_string().contains("bytes long"), "{}", e);
 }
 
@@ -252,10 +252,10 @@ fn an_entry_outside_the_root_is_refused() {
     );
     let dest = dir.path().join("out");
     let error = unpack_normalized_tarball(&tarball, &dest).unwrap_err();
-    let message = error.to_string();
+    assert_eq!(error.code(), Some("B025"));
     assert!(
-        message.contains("cannot be read") || message.contains("../escape"),
-        "{message}"
+        error.to_string().contains("not a plain relative path"),
+        "{error}"
     );
     assert!(!dir.path().join("escape").exists(), "nothing escapes");
 }
@@ -266,6 +266,7 @@ fn a_control_character_in_a_path_is_refused() {
     let tarball = pack(dir.path(), &[("recipes/a/\u{7}file.rs", b"no")]);
     let dest = dir.path().join("out");
     let error = unpack_normalized_tarball(&tarball, &dest).unwrap_err();
+    assert_eq!(error.code(), Some("B025"));
     assert!(
         error.to_string().contains("not a plain relative path"),
         "{error}"
@@ -303,13 +304,14 @@ fn pack(dir: &Path, files: &[(&str, &[u8])]) -> PathBuf {
             let mut header = tar::Header::new_gnu();
             header.set_size(content.len() as u64);
             header.set_mode(0o644);
-            header.set_cksum();
             if *name == "../escape" {
                 // `set_path` refuses paths that leave the root, so the
                 // name goes into the header field directly, like a
-                // hand-written archive would hold it.
+                // hand-written archive would hold it, and the checksum
+                // covers the copied name.
                 let field = &mut header.as_gnu_mut().unwrap().name;
                 field[..name.len()].copy_from_slice(name.as_bytes());
+                header.set_cksum();
                 builder.append(&header, *content).unwrap();
             } else {
                 builder.append_data(&mut header, name, *content).unwrap();
@@ -339,5 +341,73 @@ fn packing_refuses_entry_paths_the_unpacker_refuses() {
     fs::write(root.join("a\nb"), b"x").unwrap();
     let error = normalized_tarball(&root, &dir.path().join("v.tar"))
         .expect_err("the control-character path is refused");
-    assert!(error.to_string().contains("B024"), "{error}");
+    assert!(error.to_string().contains("B025"), "{error}");
+}
+
+/// A hard link is fine in a recipe snapshot, but a vendored tree holds
+/// only its own plain files, so the unpacker refuses the entry.
+#[test]
+fn a_hard_link_in_a_snapshot_is_refused() {
+    let dir = laft_test::tempdir();
+    let raw = dir.path().join("plain.tar");
+    {
+        let file = File::create(&raw).unwrap();
+        let mut builder = tar::Builder::new(file);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Link);
+        header.set_size(0);
+        header.set_mode(0o644);
+        header.set_path("recipes/a/link").unwrap();
+        header.set_link_name("recipes/a/package.stav").unwrap();
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).unwrap();
+        builder.into_inner().unwrap().sync_all().unwrap();
+    }
+    let tarball = dir.path().join("v.tar.zst");
+    {
+        let mut encoder =
+            zstd::stream::write::Encoder::new(File::create(&tarball).unwrap(), 3).unwrap();
+        std::io::copy(&mut File::open(&raw).unwrap(), &mut encoder).unwrap();
+        encoder.finish().unwrap();
+    }
+    let error = unpack_normalized_tarball(&tarball, &dir.path().join("out")).unwrap_err();
+    assert_eq!(error.code(), Some("B025"), "{error}");
+    assert!(
+        error.to_string().contains("which is a Link entry"),
+        "{error}"
+    );
+}
+
+/// A sparse entry is likewise refused: the vendored tree never stores
+/// one, so a sparse flag means the archive is not a plain tree.
+#[test]
+fn a_sparse_entry_in_a_snapshot_is_refused() {
+    let dir = laft_test::tempdir();
+    let raw = dir.path().join("plain.tar");
+    {
+        let file = File::create(&raw).unwrap();
+        let mut builder = tar::Builder::new(file);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::GNUSparse);
+        header.set_size(0);
+        header.as_gnu_mut().unwrap().set_real_size(0);
+        header.set_mode(0o644);
+        header.set_path("recipes/a/sparse").unwrap();
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).unwrap();
+        builder.into_inner().unwrap().sync_all().unwrap();
+    }
+    let tarball = dir.path().join("v.tar.zst");
+    {
+        let mut encoder =
+            zstd::stream::write::Encoder::new(File::create(&tarball).unwrap(), 3).unwrap();
+        std::io::copy(&mut File::open(&raw).unwrap(), &mut encoder).unwrap();
+        encoder.finish().unwrap();
+    }
+    let error = unpack_normalized_tarball(&tarball, &dir.path().join("out")).unwrap_err();
+    assert_eq!(error.code(), Some("B025"), "{error}");
+    assert!(
+        error.to_string().contains("which is a GNUSparse entry"),
+        "{error}"
+    );
 }

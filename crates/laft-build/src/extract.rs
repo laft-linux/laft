@@ -100,8 +100,9 @@ impl Format {
 /// # Errors
 ///
 /// Fails with [`SourceError::Unsafe`] for an entry that breaks a rule,
-/// with [`SourceError::Unsupported`] for a file that cannot be read as its
-/// archive format, and with [`SourceError::Io`] when the tree cannot be
+/// with [`SourceError::Unsupported`] for a file that cannot be read as
+/// its archive format or whose entries exceed what its format carries,
+/// and with [`SourceError::Io`] when the tree cannot be
 /// written or when `dest` or the file name is not a plain relative path.
 /// After an error the source tree is incomplete and must be discarded.
 pub fn unpack(
@@ -309,7 +310,7 @@ impl Extractor {
             Format::TarXz => self.tar(lzma_rust2::XzReader::new(reader, true)),
             Format::TarZst => {
                 let decoder = zstd::stream::read::Decoder::with_buffer(reader)
-                    .map_err(io_error(&self.archive))?;
+                    .map_err(|e| self.unreadable(e))?;
                 self.tar(decoder)
             }
             Format::TarLz => self.tar(lzma_rust2::LzipReader::new(reader)),
@@ -533,7 +534,7 @@ impl Extractor {
         )
         .map_err(self.io(rel))?;
         let mut file = File::from(fd);
-        io::copy(content, &mut file).map_err(|e| self.unreadable(e))?;
+        io::copy(content, &mut file).map_err(io_error(&self.archive))?;
         rustix::fs::fchmod(&file, Mode::from_raw_mode(0o644 | (mode & EXEC_BITS)))
             .map_err(self.io(rel))?;
         if let Some(seconds) = mtime.and_then(|s| i64::try_from(s).ok()) {

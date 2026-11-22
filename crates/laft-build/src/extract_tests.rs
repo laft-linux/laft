@@ -360,6 +360,15 @@ fn every_archive_format_extracts_the_same_tree() {
 }
 
 #[test]
+fn garbage_zstd_is_refused_as_unsupported() {
+    let tree = Tree::new();
+    let error = tree
+        .unpack(&source("foo.tar.zst", "", None), b"not zstd")
+        .expect_err("garbage");
+    assert_eq!(error.code(), "B024");
+}
+
+#[test]
 fn the_source_label_never_names_a_path() {
     let tree = Tree::new();
     let victim = tree.dir.path().join("victim");

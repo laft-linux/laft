@@ -20,7 +20,7 @@ use crate::{SOURCE_DATE_EPOCH, SourceCache, SourceError, Vendor, VendorKind};
 /// for a path too long for them. The pax record is written before the
 /// header, whose name field also carries the longest prefix of the path
 /// that fits, so a reader without pax support still sees a name. The
-/// `.git` and `.jj` directories of the tree are not packed. Entries are
+/// `.git` and `.jj` entries of the tree are not packed. Entries are
 /// sorted bytewise by path, so directories come before their contents.
 /// Every entry has the modification time [`SOURCE_DATE_EPOCH`], owner and
 /// group 0 and no names, and mode `0o755` for directories and executable
@@ -29,10 +29,10 @@ use crate::{SOURCE_DATE_EPOCH, SourceCache, SourceError, Vendor, VendorKind};
 ///
 /// # Errors
 ///
-/// Fails when the tree cannot be read, holds a device, FIFO or socket,
-/// holds a symlink whose target is not a plain relative path inside the
-/// tree or is too long for the archive's link name field, or when `file`
-/// cannot be written.
+/// Fails when the tree cannot be read, holds a path that is not a plain
+/// relative path, holds a device, FIFO or socket, holds a symlink whose
+/// target is not a plain relative path inside the tree or is too long
+/// for the archive's link name field, or when `file` cannot be written.
 pub fn normalized_tarball(dir: &Path, file: &Path) -> Result<(), BuildError> {
     let out = File::create(file).map_err(io(file))?;
     let mut builder = tar::Builder::new(BufWriter::new(out));
@@ -113,10 +113,7 @@ pub fn normalized_tarball(dir: &Path, file: &Path) -> Result<(), BuildError> {
                     .map_err(io(file))?;
             }
             Kind::Other => {
-                return Err(BuildError::problem(
-                    "B025",
-                    format!("{} is a device, FIFO or socket", path.display()),
-                ));
+                return Err(refused(file, &rel, "which is a device, FIFO or socket"));
             }
         }
     }
@@ -140,9 +137,11 @@ const UNPACK_MAX_ENTRIES: usize = 50_000;
 const UNPACK_MAX_BYTES: u64 = 1 << 30;
 
 /// Unpacks the normalized tarball at `archive` into `dest`, which is
-/// created. The inverse of [`normalized_tarball`] for a `.tar` file, and
-/// the client side of a recipe snapshot: the recipe repository that
-/// produced an index generation, unpacked for builds to evaluate.
+/// created. The inverse of [`normalized_tarball`], once the `.tar.zst`
+/// is decompressed, and the client side of a recipe snapshot: the recipe
+/// repository that produced an index generation, unpacked for builds to
+/// evaluate. Only `.tar.zst` archives are accepted, not the plain
+/// `.tar` the packer writes.
 ///
 /// Only plain relative paths inside `dest` are written: directories,
 /// regular files with their recorded mode, and relative symlinks that
@@ -153,23 +152,26 @@ const UNPACK_MAX_BYTES: u64 = 1 << 30;
 ///
 /// # Errors
 ///
-/// Fails when the archive cannot be read, an entry would leave `dest`, or
-/// a file cannot be written.
+/// Fails when the archive cannot be read or exceeds the entry or size
+/// bound, holds an entry that is not a plain relative path or cannot be
+/// carried, or a file cannot be written.
 pub fn unpack_normalized_tarball(archive: &Path, dest: &Path) -> Result<(), BuildError> {
     fs::create_dir_all(dest).map_err(io(dest))?;
     let file = File::open(archive).map_err(io(archive))?;
     let reader = zstd::stream::read::Decoder::new(BufReader::new(file))
-        .map_err(|e| BuildError::problem("B024", format!("{}: {e}", archive.display())))?;
+        .map_err(|e| refused_io(archive, e))?;
     let mut tar = tar::Archive::new(reader);
     let entries = tar.entries().map_err(|e| refused_io(archive, e))?;
     let mut unpacked = 0u64;
     for (count, entry) in entries.enumerate() {
         let mut entry = entry.map_err(|e| refused_io(archive, e))?;
         if count >= UNPACK_MAX_ENTRIES {
-            return Err(refused(
-                archive,
-                "the archive",
-                format!("holds more than {UNPACK_MAX_ENTRIES} entries"),
+            return Err(BuildError::problem(
+                "B024",
+                format!(
+                    "{} holds more than {UNPACK_MAX_ENTRIES} entries",
+                    archive.display()
+                ),
             ));
         }
         let raw = entry
@@ -186,10 +188,12 @@ pub fn unpack_normalized_tarball(archive: &Path, dest: &Path) -> Result<(), Buil
         let size = entry.header().size().map_err(|e| refused_io(archive, e))?;
         unpacked += size;
         if unpacked > UNPACK_MAX_BYTES {
-            return Err(refused(
-                archive,
-                "the archive",
-                format!("decompresses to more than {UNPACK_MAX_BYTES} bytes"),
+            return Err(BuildError::problem(
+                "B024",
+                format!(
+                    "{} decompresses to more than {UNPACK_MAX_BYTES} bytes",
+                    archive.display()
+                ),
             ));
         }
         let target = dest.join(&plain);
@@ -273,10 +277,13 @@ fn refused_io(archive: &Path, error: impl std::fmt::Display) -> BuildError {
     )
 }
 
-/// A `B024` problem about `entry` of `archive`.
+/// A `B025` problem about `entry` of `archive`: the entry is one a
+/// vendored tree or recipe snapshot must not carry, such as a device,
+/// FIFO, socket, a path that is not a plain relative path, or a symlink
+/// target the archive cannot represent.
 fn refused(archive: &Path, entry: &str, reason: impl std::fmt::Display) -> BuildError {
     BuildError::problem(
-        "B024",
+        "B025",
         format!("{} holds {entry}, {reason}", archive.display()),
     )
 }
@@ -309,7 +316,8 @@ fn command(vendor: &Vendor) -> String {
 /// # Errors
 ///
 /// Fails with `B020` when the tarball has another hash, with `B040` when
-/// the tool fails, and when files cannot be written.
+/// the tool fails, with `B025` when the tree holds an entry the archive
+/// cannot carry, and when files cannot be read or written.
 pub(crate) fn vendor(
     what: &str,
     vendor: &Vendor,

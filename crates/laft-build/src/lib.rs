@@ -90,16 +90,17 @@
 //! | `R073` | a build that was asked for an option the recipe does not declare, or a tag the option does not have, or an option constraint in a dependency that the package it names does not declare |
 //! | `B010` | dirty items that depend on each other in a cycle |
 //!
-//! Fetching and unpacking sources reports [`SourceError`]s:
+//! Fetching and unpacking sources, vendored trees and recipe snapshots
+//! reports these problems:
 //!
 //! | Code | Problem |
 //! |---|---|
-//! | `B020` | a location served a file whose SHA-256 hash differs from the recipe's |
-//! | `B021` | an archive entry or link that leads outside its destination |
+//! | `B020` | a fetched or vendored file whose SHA-256 hash differs from the recipe's |
+//! | `B021` | an archive entry that breaks the extraction rules, such as one that leaves the destination, replaces a directory, or is written through a link |
 //! | `B022` | no URL and no mirror has the file |
-//! | `B023` | a local file that cannot be read or written |
-//! | `B024` | an archive that cannot be read |
-//! | `B025` | a vendored tree that holds a device, FIFO or socket |
+//! | `B023` | a local file that cannot be read or written, or a destination or file name that is not a plain relative path |
+//! | `B024` | an archive that cannot be read, one that exceeds its unpacking entry or size bound, one with a symbolic link target longer than a path may hold, or a file asked to extract that is no known archive format |
+//! | `B025` | a vendored tree or recipe snapshot that holds a device, FIFO, socket, a path that is not a plain relative path, or a symlink target the archive cannot represent; a recipe snapshot also refuses hard links and sparse entries |
 //!
 //! Builds report [`BuildError`]s and [`Warning`]s:
 //!
