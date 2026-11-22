@@ -705,11 +705,30 @@ fn root_stage(dir: &Path, steps: &str) -> Stage {
     stage
 }
 
-/// Whether `result` failed because the sandbox cannot run here, which it
-/// prints.
+/// Pins that the guard skips the nested free-space refusal the inner
+/// binary produces.
+#[test]
+fn the_guard_skips_a_nested_free_space_refusal() {
+    let error = BuildError::problem(
+        "B040",
+        "greet failed with exit status: 3 inside the root, see /tmp/log\
+         \n  | laft-build: error[B031]: /run/laft-build-root has 6050 MiB free, but builds need 10 GiB",
+    );
+    assert!(refused(&Err::<(), _>(error)));
+}
+
+/// Whether `result` failed because the machine cannot run the step: the
+/// sandbox cannot run here, or the inner binary refused for lack of
+/// build-root space and reached this run as a failed step.
 fn refused<T>(result: &Result<T, BuildError>) -> bool {
     match result {
         Err(error) if error.refuses_namespaces() => {
+            println!("skipping: {error}");
+            true
+        }
+        // The inner binary's own prefix marks the refusal as its
+        // diagnostic, not text a step's output happens to echo.
+        Err(error) if error.to_string().contains("laft-build: error[B031]") => {
             println!("skipping: {error}");
             true
         }
