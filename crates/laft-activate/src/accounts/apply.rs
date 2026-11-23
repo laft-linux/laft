@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, chown};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -253,7 +253,7 @@ fn create_home(root: &Path, home: &str, owner: fsx::Owner) -> Result<bool> {
         .map_err(io(&path))?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).map_err(io(&path))?;
     if fsx::is_root() {
-        chown(&path, Some(owner.0), Some(owner.1)).map_err(io(&path))?;
+        fsx::chown_owner(&path, owner.0, owner.1)?;
     }
     fsx::sync_dir(parent)?;
     Ok(true)

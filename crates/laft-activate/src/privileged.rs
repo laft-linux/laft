@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, fchown};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path};
 
 use laft_core::{FileCapabilities, Name, StoreId, system_gid, system_uid};
@@ -276,7 +276,7 @@ fn copy(
         .map_err(io(&tmp))?;
     io::copy(&mut source, &mut copy).map_err(io(&tmp))?;
     if privileged {
-        fchown(&copy, Some(uid), Some(gid)).map_err(io(&tmp))?;
+        fsx::fchown_owner(&copy, &tmp, uid, gid)?;
     }
     let mode = if privileged { mode } else { mode & !0o6000 };
     copy.set_permissions(fs::Permissions::from_mode(mode))

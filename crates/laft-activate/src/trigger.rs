@@ -626,11 +626,7 @@ impl Identity {
 
 /// Gives the directory `path` to uid and gid `id`.
 fn chown(path: &Path, id: u32) -> Result<()> {
-    let (uid, gid) = (
-        rustix::process::Uid::from_raw(id),
-        rustix::process::Gid::from_raw(id),
-    );
-    rustix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| io(path)(e.into()))
+    fsx::chown_owner(path, id, id)
 }
 
 #[cfg(test)]

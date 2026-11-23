@@ -10,6 +10,31 @@ use crate::error::{Result, io};
 /// Who owns a file Laft writes: a uid and a gid.
 pub(crate) type Owner = (u32, u32);
 
+/// Chowns `path` to `uid` and `gid`. As root, a user namespace that maps
+/// no account of an id refuses the chown with EINVAL, which is what a
+/// build sandbox does; ownership there stays with the sandbox account,
+/// and the permissions beside it keep the file readable for the accounts
+/// that must read it.
+pub(crate) fn chown_owner(path: &Path, uid: u32, gid: u32) -> Result<()> {
+    match rustix::fs::chown(
+        path,
+        Some(rustix::process::Uid::from_raw(uid)),
+        Some(rustix::process::Gid::from_raw(gid)),
+    ) {
+        Err(rustix::io::Errno::INVAL) => Ok(()),
+        other => other.map(|_| ()).map_err(|e| io(path)(e.into())),
+    }
+}
+
+/// Chowns the open `file` to `uid` and `gid`, like [`chown_owner`]. The
+/// `path` names `file` in error messages.
+pub(crate) fn fchown_owner(file: &File, path: &Path, uid: u32, gid: u32) -> Result<()> {
+    match fchown(file, Some(uid), Some(gid)) {
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        other => other.map_err(io(path)),
+    }
+}
+
 /// Whether the process runs as root, so that it can give files away.
 ///
 /// An unprivileged caller, such as a test working in a temporary root,
@@ -30,7 +55,7 @@ pub(crate) fn stage(tmp: &Path, bytes: &[u8], mode: u32, owner: Owner) -> Result
         .map_err(io(tmp))?;
     file.write_all(bytes).map_err(io(tmp))?;
     if is_root() {
-        fchown(&file, Some(owner.0), Some(owner.1)).map_err(io(tmp))?;
+        fchown_owner(&file, tmp, owner.0, owner.1)?;
     }
     file.set_permissions(fs::Permissions::from_mode(mode))
         .map_err(io(tmp))?;
