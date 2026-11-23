@@ -476,6 +476,11 @@ impl Setup {
             | UnshareFlags::NEWUTS;
         let uid = rustix::process::getuid().as_raw();
         let gid = rustix::process::getgid().as_raw();
+        // Writing the map of a new user namespace asks for every id it
+        // names beyond the caller's own, so the root of a namespace that
+        // maps no check user, such as a build sandbox inside another one,
+        // cannot map one: the phases that ask for it run as root there.
+        let check_user = check_user && (uid != 0 || in_initial_user_namespace());
         let (root, inside, user_namespace) = match layout {
             Layout::Build(sandbox) => {
                 if sandbox.network == Network::Isolated {
@@ -989,6 +994,15 @@ fn helper_calls(uid: u32, gid: u32) -> Result<(HelperCall, HelperCall), Error> {
             ],
         },
     ))
+}
+
+/// Whether this process is root of the initial user namespace, the only
+/// place where its root holds `CAP_SETUID` over ids it does not own.
+fn in_initial_user_namespace() -> bool {
+    let Ok(map) = std::fs::read_to_string("/proc/self/uid_map") else {
+        return false;
+    };
+    map.trim() == "0 0 4294967295"
 }
 
 /// `path` as a C string.
