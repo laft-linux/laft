@@ -63,6 +63,11 @@ pub struct Executor {
     /// The pipe of the jobserver the build joins, or `None` when it runs
     /// without one.
     jobserver: Option<PathBuf>,
+    /// Whether a direct executor rewrites the `/build` and `/out` of the
+    /// sandbox layout to the real directories, which recipe phases written
+    /// for a sandbox need and caller scripts with paths of their own must
+    /// not get.
+    rewrite: bool,
 }
 
 impl Executor {
@@ -84,6 +89,7 @@ impl Executor {
             shell: Shell::Sh,
             peak: Arc::new(AtomicU64::new(0)),
             jobserver: None,
+            rewrite: true,
         }
     }
 
@@ -106,7 +112,16 @@ impl Executor {
             shell: Shell::Sh,
             peak: Arc::new(AtomicU64::new(0)),
             jobserver: None,
+            rewrite: true,
         }
+    }
+
+    /// Stops a direct executor from rewriting the `/build` and `/out` of
+    /// the sandbox layout in the script and its environment, for a command
+    /// whose paths are real paths of where it runs.
+    pub fn verbatim(mut self) -> Self {
+        self.rewrite = false;
+        self
     }
 
     /// Sets the longest time one command may run.
@@ -281,14 +296,18 @@ impl Executor {
                 Ok(env.iter().fold(command, |c, (k, v)| c.env(k, v)).status()?)
             }
             Place::Direct(root) => {
+                let rewrite = |text: &str| {
+                    if self.rewrite {
+                        rebase(text, &self.build, &self.out)
+                    } else {
+                        text.to_owned()
+                    }
+                };
                 let shell = self.direct_shell(root);
                 std::process::Command::new(&shell)
                     .arg("-i")
                     .env_clear()
-                    .envs(
-                        env.iter()
-                            .map(|(k, v)| (k, rebase(v, &self.build, &self.out))),
-                    )
+                    .envs(env.iter().map(|(k, v)| (k, rewrite(v))))
                     .env("PATH", self.direct_path(root)?)
                     .current_dir(&self.build)
                     .status()
@@ -345,15 +364,22 @@ impl Executor {
                     .spawn()?
             }
             Place::Direct(root) => {
+                let rewrite = |text: &str| {
+                    if self.rewrite {
+                        rebase(text, &self.build, &self.out)
+                    } else {
+                        text.to_owned()
+                    }
+                };
                 let mut rebased: BTreeMap<String, OsString> = env
                     .iter()
-                    .map(|(k, v)| (k.clone(), rebase(v, &self.build, &self.out).into()))
+                    .map(|(k, v)| (k.clone(), rewrite(v).into()))
                     .collect();
                 rebased.insert("PATH".to_owned(), self.direct_path(root)?);
                 let shell = self.direct_shell(root);
                 std::process::Command::new(&shell)
                     .arg("-c")
-                    .arg(rebase(script, &self.build, &self.out))
+                    .arg(rewrite(script))
                     .arg(phase)
                     .process_group(0)
                     .env_clear()

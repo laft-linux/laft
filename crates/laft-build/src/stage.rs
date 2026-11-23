@@ -1174,6 +1174,7 @@ impl StageRun<'_> {
                 vars.extend(env.clone());
                 let out = root.clone().unwrap_or_else(|| scratch.join("out"));
                 Executor::direct("/", &scratch, &out, self.logs)
+                    .verbatim()
                     .search_first(self.builder.search.clone())
                     .timeout(self.options.timeout)
                     .run(tag, script, &vars)?;
