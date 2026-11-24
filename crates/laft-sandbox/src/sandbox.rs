@@ -602,9 +602,7 @@ impl Setup {
                 // the maps of the child while it still can. An unprivileged
                 // caller writes its own map after the unshare, which the
                 // kernel accepts in its initial namespace.
-                Some(IdMap::Own(uid_map, gid_map))
-                    if rustix::process::geteuid().is_root() =>
-                {
+                Some(IdMap::Own(uid_map, gid_map)) if rustix::process::geteuid().is_root() => {
                     self.map_in_child(uid_map, gid_map, report)?;
                 }
                 _ => {
