@@ -54,6 +54,16 @@ fn a_static_view_requests_static_libraries_and_the_cross_toolchain() {
     let available = ["zlib-dev".parse().unwrap()].into_iter().collect();
     assert_eq!(
         names(&requests(&recipe, false, &available)),
+        ["meson", "zlib:static"]
+    );
+    let available = [
+        "zlib-dev".parse().unwrap(),
+        "toolchain-musl".parse().unwrap(),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        names(&requests(&recipe, false, &available)),
         ["meson", "zlib:static", "toolchain-musl"]
     );
 }

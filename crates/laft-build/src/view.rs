@@ -58,7 +58,9 @@ pub const SMOKE_BASE: &[&str] = &["coreutils", "dash"];
 /// 3. the `link_deps`: in a `dynamic` build each package and its `-dev`
 ///    subpackage, when `available` has one, and in a `static` build their
 ///    `static` variant, which the recipe already selected,
-/// 4. [`STATIC_TOOLCHAIN`] for a `static` build,
+/// 4. [`STATIC_TOOLCHAIN`] for a `static` build, when `available` holds
+///    it, so the first static builds of a root work before the cross
+///    toolchain they themselves produce exists,
 /// 5. the `check_deps` when the check phase runs.
 ///
 /// The resolver adds the runtime dependencies of all of them.
@@ -92,8 +94,11 @@ pub fn requests(recipe: &Recipe, check: bool, available: &BTreeSet<Name>) -> Vec
             ));
         }
     }
-    if recipe.variant == Variant::Static {
-        refs.extend(named(STATIC_TOOLCHAIN));
+    if recipe.variant == Variant::Static
+        && let Some(toolchain) = named(STATIC_TOOLCHAIN)
+        && available.contains(toolchain.name())
+    {
+        refs.push(toolchain);
     }
     if check {
         refs.extend(recipe.check_deps.iter().map(dynamic));
