@@ -476,11 +476,13 @@ impl Setup {
             | UnshareFlags::NEWUTS;
         let uid = rustix::process::getuid().as_raw();
         let gid = rustix::process::getgid().as_raw();
-        // Writing the map of a new user namespace asks for every id it
-        // names beyond the caller's own, so the root of a namespace that
-        // maps no check user, such as a build sandbox inside another one,
-        // cannot map one: the phases that ask for it run as root there.
-        let check_user = check_user && (uid != 0 || in_initial_user_namespace());
+        // The mapping helpers carry their privilege in their setuid bit,
+        // which the kernel ignores inside a sandbox that set
+        // `no_new_privs`, and the kernel refuses an unprivileged map that
+        // names any id beyond the caller's own. A build sandbox inside
+        // another sandbox therefore maps no check user: the phases that
+        // ask for one run as root there.
+        let check_user = check_user && in_initial_user_namespace();
         let (root, inside, user_namespace) = match layout {
             Layout::Build(sandbox) => {
                 if sandbox.network == Network::Isolated {
@@ -580,7 +582,7 @@ impl Setup {
             None => {
                 sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
                 if let Some(IdMap::Own(uid_map, gid_map)) = &self.id_maps {
-                    write_proc(c"/proc/self/setgroups", b"deny")?;
+                    deny_setgroups()?;
                     write_proc(c"/proc/self/uid_map", uid_map)?;
                     write_proc(c"/proc/self/gid_map", gid_map)?;
                 }
@@ -935,6 +937,17 @@ fn write_proc(path: &CStr, data: &[u8]) -> Result<(), Failure> {
     }
 }
 
+/// Denies setgroups for the sandboxed process. The kernel refuses the
+/// write to a caller that maps no group zero of its own, and it denies
+/// setgroups for any unprivileged map regardless, so a refusal leaves
+/// the state the map would have forced anyway.
+fn deny_setgroups() -> Result<(), Failure> {
+    match write_proc(c"/proc/self/setgroups", b"deny") {
+        Err((_, Errno::PERM)) => Ok(()),
+        other => other,
+    }
+}
+
 /// The calls of `newuidmap` and `newgidmap` for a caller that is not root,
 /// which map the build's own ids and the check user to the caller's first
 /// subordinate ids. Fails when a helper is missing from the path or the
@@ -1002,7 +1015,7 @@ fn in_initial_user_namespace() -> bool {
     let Ok(map) = std::fs::read_to_string("/proc/self/uid_map") else {
         return false;
     };
-    map.trim() == "0 0 4294967295"
+    map.split_whitespace().collect::<Vec<_>>() == ["0", "0", "4294967295"]
 }
 
 /// `path` as a C string.
