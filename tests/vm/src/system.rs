@@ -41,6 +41,8 @@ pub(crate) const SELF_BUILT_PACKAGES: &[&str] = &[
     "lz4",
     "ncurses",
     "openssl",
+    "openssl-libs",
+    "openssl-libs-dev",
     "procps-ng",
     "readline",
     "runit",
