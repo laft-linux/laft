@@ -512,6 +512,20 @@ impl Setup {
         let id_maps = user_namespace
             .then(|| {
                 namespaces |= UnshareFlags::NEWUSER;
+                // The kernel refuses the map of a namespace at any depth
+                // below the initial one for a caller that is not root
+                // there, so a sandbox inside another sandbox needs a root
+                // caller.
+                if !in_initial_user_namespace()
+                    && !rustix::process::geteuid().is_root()
+                {
+                    return Err(Error::new(
+                        Step::MapIds,
+                        std::io::Error::other(
+                            "a sandbox inside another sandbox needs a caller that is root in its namespace",
+                        ),
+                    ));
+                }
                 match (layout, check_user, uid == 0) {
                     // Only the build sandbox has a check user, so only it
                     // maps a second id for one.
@@ -546,13 +560,13 @@ impl Setup {
     /// the parent through `report` before the standard library reports the
     /// error number.
     fn run(&self, report: BorrowedFd<'_>) -> std::io::Result<()> {
-        self.enter().map_err(|(step, errno)| {
+        self.enter(report).map_err(|(step, errno)| {
             let _ = rustix::io::write(report, &[step as u8]);
             errno.into()
         })
     }
 
-    fn enter(&self) -> Result<(), Failure> {
+    fn enter(&self, report: BorrowedFd<'_>) -> Result<(), Failure> {
         // The sandbox dies with its caller, so that nothing it runs keeps
         // writing after the caller is gone. The signal follows the thread
         // that spawned the sandbox, which waits for it. A caller that died
@@ -579,14 +593,29 @@ impl Setup {
                 run_helper(uid_helper)?;
                 run_helper(gid_helper)?;
             }
-            None => {
-                sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
-                if let Some(IdMap::Own(uid_map, gid_map)) = &self.id_maps {
-                    deny_setgroups()?;
-                    write_proc(c"/proc/self/uid_map", uid_map)?;
-                    write_proc(c"/proc/self/gid_map", gid_map)?;
+            None => match &self.id_maps {
+                // The kernel lets a process write the map of a new user
+                // namespace only while it keeps its capabilities in the
+                // namespace that owns the process, and it takes them away
+                // at the unshare. A root caller therefore forks: the child
+                // enters the namespaces and waits, and the parent writes
+                // the maps of the child while it still can. An unprivileged
+                // caller writes its own map after the unshare, which the
+                // kernel accepts in its initial namespace.
+                Some(IdMap::Own(uid_map, gid_map))
+                    if rustix::process::geteuid().is_root() =>
+                {
+                    self.map_in_child(uid_map, gid_map, report)?;
                 }
-            }
+                _ => {
+                    sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
+                    if let Some(IdMap::Own(uid_map, gid_map)) = &self.id_maps {
+                        deny_setgroups()?;
+                        write_proc(c"/proc/self/uid_map", uid_map)?;
+                        write_proc(c"/proc/self/gid_map", gid_map)?;
+                    }
+                }
+            },
         }
         let open_files = Rlimit {
             current: Some(self.open_files),
@@ -621,6 +650,65 @@ impl Setup {
                     RootSetup::Build(root) => root.build(),
                     RootSetup::Fixed(root) => root.build(),
                     RootSetup::Root(root) => root.build(),
+                }
+            }
+        }
+    }
+
+    /// Forks the process that enters the namespaces and writes its maps
+    /// from here, where the capabilities of the caller still reach the
+    /// namespace the process comes from. On success the forked parent
+    /// never returns: it waits for the child and exits the way it did.
+    fn map_in_child(
+        &self,
+        uid_map: &[u8],
+        gid_map: &[u8],
+        report: BorrowedFd<'_>,
+    ) -> Result<(), Failure> {
+        let (ready_reader, ready_writer) =
+            rustix::pipe::pipe_with(PipeFlags::CLOEXEC).map_err(fail(Step::MapIds))?;
+        let (go_reader, go_writer) =
+            rustix::pipe::pipe_with(PipeFlags::CLOEXEC).map_err(fail(Step::MapIds))?;
+        // SAFETY: both sides only make system calls on data prepared before
+        // the fork and never allocate or take locks.
+        match unsafe { sys::fork() }.map_err(fail(Step::MapIds))? {
+            Fork::Parent(mapper) => {
+                drop(ready_writer);
+                drop(go_reader);
+                match rustix::io::read(&ready_reader, &mut [0u8; 1]) {
+                    Ok(1) => {}
+                    _ => wait_for(mapper),
+                }
+                let write = |name: &str, data: &[u8]| -> Result<(), Failure> {
+                    let path = CString::new(format!("/proc/{}/{name}", Pid::as_raw(Some(mapper))))
+                        .map_err(|_| (Step::MapIds, Errno::IO))?;
+                    write_proc(&path, data)
+                };
+                write("setgroups", b"deny")?;
+                write("uid_map", uid_map)?;
+                write("gid_map", gid_map)?;
+                if rustix::io::write(&go_writer, &[0]).is_err() {
+                    wait_for(mapper);
+                }
+                wait_for(mapper)
+            }
+            Fork::Child => {
+                drop(ready_reader);
+                drop(go_writer);
+                let child = || -> Result<(), Failure> {
+                    sys::unshare(self.namespaces).map_err(fail(Step::Unshare))?;
+                    rustix::io::write(&ready_writer, &[0u8]).map_err(fail(Step::MapIds))?;
+                    match rustix::io::read(&go_reader, &mut [0u8; 1]) {
+                        Ok(1) => Ok(()),
+                        _ => Err((Step::MapIds, Errno::IO)),
+                    }
+                };
+                match child() {
+                    Ok(()) => Ok(()),
+                    Err((step, errno)) => {
+                        let _ = rustix::io::write(report, &[step as u8]);
+                        sys::exit(errno.raw_os_error())
+                    }
                 }
             }
         }
