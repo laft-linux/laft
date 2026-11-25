@@ -8,7 +8,7 @@ on:
 jobs:
   release-plz-release:
     name: Release-plz release
-    if: ${{ github.repository_owner == 'QaidVoid' }}
+    if: ${{ github.repository_owner == 'laft-linux' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,7 +26,7 @@ jobs:
       - name: Checkout Stav
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: QaidVoid/stav
+          repository: laft-linux/stav
           path: stav
           persist-credentials: false
       - name: Install Rust toolchain
@@ -42,7 +42,7 @@ jobs:
 
   release-plz-pr:
     name: Release-plz PR
-    if: ${{ github.repository_owner == 'QaidVoid' }}
+    if: ${{ github.repository_owner == 'laft-linux' }}
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -59,7 +59,7 @@ jobs:
       - name: Checkout Stav
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: QaidVoid/stav
+          repository: laft-linux/stav
           path: stav
           persist-credentials: false
       - name: Install Rust toolchain

@@ -4,7 +4,7 @@
 
 | Prefix | Found by |
 |---|---|
-| `E` | Stav, while it parses, type checks and evaluates a file. See the [Stav error codes](https://github.com/QaidVoid/stav/blob/main/docs/reference/error-codes.md). |
+| `E` | Stav, while it parses, type checks and evaluates a file. See the [Stav error codes](https://github.com/laft-linux/stav/blob/main/docs/reference/error-codes.md). |
 | `C` | `laft`, when it validates and activates the system configuration. |
 | `S`, `W0xx` | The resolver, when it chooses the packages of a view. |
 | `R` | `laft-build`, when it checks recipes and stage files. |

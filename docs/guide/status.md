@@ -45,4 +45,4 @@ These exist and have unit or namespace tests, but have not yet been tested on a 
 
 ## Following along
 
-The source is at [github.com/QaidVoid/laft](https://github.com/QaidVoid/laft), and the configuration language at [github.com/QaidVoid/stav](https://github.com/QaidVoid/stav). The fastest way to see where things stand is to run [the virtual machine test](./try-it) yourself.
+The source is at [github.com/laft-linux/laft](https://github.com/laft-linux/laft), and the configuration language at [github.com/laft-linux/stav](https://github.com/laft-linux/stav). The fastest way to see where things stand is to run [the virtual machine test](./try-it) yourself.

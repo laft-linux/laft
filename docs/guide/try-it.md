@@ -13,12 +13,12 @@
 - `/dev/kvm`, ideally. Without it the machines are emulated, and everything takes about ten times longer.
 - A network connection for the first run, which downloads the pinned sources.
 
-Laft depends on [Stav](https://github.com/QaidVoid/stav) through a checkout next to it, so clone both into the same directory:
+Laft depends on [Stav](https://github.com/laft-linux/stav) through a checkout next to it, so clone both into the same directory:
 
 ```sh
 cd ~
-git clone https://github.com/QaidVoid/stav
-git clone https://github.com/QaidVoid/laft
+git clone https://github.com/laft-linux/stav
+git clone https://github.com/laft-linux/laft
 cd laft
 ```
 

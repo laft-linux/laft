@@ -92,7 +92,7 @@ const planned = [
         <div class="actions">
           <a class="btn brand" :href="withBase('/guide/try-it')">Try it in QEMU</a>
           <a class="btn alt" :href="withBase('/guide/concepts')">How it works</a>
-          <a class="btn ghost" href="https://github.com/QaidVoid/laft">Source</a>
+          <a class="btn ghost" href="https://github.com/laft-linux/laft">Source</a>
         </div>
       </div>
       <div class="hero-art">

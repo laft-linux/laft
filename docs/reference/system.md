@@ -2,7 +2,7 @@
 
 <p class="lead">Every field of the system configuration, with its type and default, as the schema in <code>crates/laft-config/stav/prelude/system.stav</code> declares it. <code>laft options</code> prints the same list on a machine.</p>
 
-Types are Stav types. `Option<T>` fields may be left out, `Set<T>` and `List<T>` are written as lists, and `Map<Str, T>` fields with a block keyword are written as labeled blocks: the `services` map is written as `service <name> { ... }` blocks. `Ref<User>` and `Ref<Group>` name a declared account. `Pkg` is a [package reference](../guide/concepts#packages) and `Path` a path literal relative to the file. `Data` is any value that the target format can hold. See the [Stav reference](https://github.com/QaidVoid/stav/blob/main/docs/reference/types.md) for the type syntax and `where` refinements.
+Types are Stav types. `Option<T>` fields may be left out, `Set<T>` and `List<T>` are written as lists, and `Map<Str, T>` fields with a block keyword are written as labeled blocks: the `services` map is written as `service <name> { ... }` blocks. `Ref<User>` and `Ref<Group>` name a declared account. `Pkg` is a [package reference](../guide/concepts#packages) and `Path` a path literal relative to the file. `Data` is any value that the target format can hold. See the [Stav reference](https://github.com/laft-linux/stav/blob/main/docs/reference/types.md) for the type syntax and `where` refinements.
 
 Values from the base part and the `std` catalog are defaults that any plain assignment replaces. The defaults below are those of the schema itself.
 

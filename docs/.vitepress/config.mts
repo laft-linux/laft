@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 import { frost, night, stavLanguage } from './syntax'
 
-const repo = 'https://github.com/QaidVoid/laft'
+const repo = 'https://github.com/laft-linux/laft'
 const base = process.env.DOCS_BASE ?? '/'
 
 export default defineConfig({

@@ -2,7 +2,7 @@
 
 <p class="lead">A Laft machine is described by <code>/etc/laft/system.stav</code> and the files it includes. This page walks through the configuration that the virtual machine test installs, then shows the other things a configuration can declare.</p>
 
-The file is written in [Stav](https://github.com/QaidVoid/stav), a typed configuration language with block syntax. This guide explains what Laft does with each setting. For the language itself, its types, functions, imports and merging rules, see the [Stav documentation](https://github.com/QaidVoid/stav/tree/main/docs). Every field is listed in the [system configuration reference](../reference/system).
+The file is written in [Stav](https://github.com/laft-linux/stav), a typed configuration language with block syntax. This guide explains what Laft does with each setting. For the language itself, its types, functions, imports and merging rules, see the [Stav documentation](https://github.com/laft-linux/stav/tree/main/docs). Every field is listed in the [system configuration reference](../reference/system).
 
 ## A real configuration, explained
 
@@ -279,7 +279,7 @@ A view is another `/usr` assembled next to the system's. This one starts from th
 
 ## Priorities and overrides
 
-When two places set the same value, Stav merging decides. Lists and sets concatenate, maps merge per key, and single values settle by priority. The base part and the catalog use `default(...)`, which any plain assignment beats, and `force(...)` beats a plain assignment. Two plain assignments of different values are an error that names both places. See the [Stav merging rules](https://github.com/QaidVoid/stav/blob/main/docs/reference/merging.md) for the full order.
+When two places set the same value, Stav merging decides. Lists and sets concatenate, maps merge per key, and single values settle by priority. The base part and the catalog use `default(...)`, which any plain assignment beats, and `force(...)` beats a plain assignment. Two plain assignments of different values are an error that names both places. See the [Stav merging rules](https://github.com/laft-linux/stav/blob/main/docs/reference/merging.md) for the full order.
 
 ## Checking and inspecting
 

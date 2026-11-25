@@ -14,7 +14,7 @@ Most distributions change a running system in place: a package manager unpacks f
 
 | Piece | What it does |
 |---|---|
-| [Stav](https://github.com/QaidVoid/stav) | The typed, total configuration language that system files and recipes are written in. |
+| [Stav](https://github.com/laft-linux/stav) | The typed, total configuration language that system files and recipes are written in. |
 | `laft` | Plans, applies, switches and inspects a system. It also installs one onto a mounted disk. |
 | `laft-boot` | The init of the initramfs. It picks a generation, counts the boot attempt, mounts the generation and starts runit. |
 | `laft-enter` | A small setuid helper that runs a command inside a view other than the system's. |
