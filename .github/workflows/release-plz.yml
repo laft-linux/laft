@@ -22,16 +22,26 @@ jobs:
           path: laft
           fetch-depth: 0
           persist-credentials: false
-      # Laft depends on the Stav checkout next to it during development.
-      - name: Checkout Stav
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: laft-linux/stav
-          path: stav
-          persist-credentials: false
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@ff7f6a3374ce205788da40198ec918bd5d67aea7 # 1.99.0
+      # A release builds against the Stav on crates.io. Until the Stav that
+      # Laft needs is published, nothing can be released. A push that
+      # merges a release PR fails here instead of publishing half the crates.
+      - name: Check that Laft builds against the published Stav
+        id: stav
+        working-directory: laft
+        run: |
+          if cargo check --workspace --quiet; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif git log -1 --format=%s | grep -q '^chore: release'; then
+            echo "::error::This release needs a Stav that is not on crates.io yet. Release Stav first."
+            exit 1
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Laft needs a Stav that is not on crates.io yet, so release-plz is skipped."
+          fi
       - name: Run release-plz
+        if: ${{ steps.stav.outputs.published == 'true' }}
         uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
         with:
           command: release
@@ -56,15 +66,20 @@ jobs:
         with:
           path: laft
           fetch-depth: 0
-      - name: Checkout Stav
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: laft-linux/stav
-          path: stav
-          persist-credentials: false
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@ff7f6a3374ce205788da40198ec918bd5d67aea7 # 1.99.0
+      - name: Check that Laft builds against the published Stav
+        id: stav
+        working-directory: laft
+        run: |
+          if cargo check --workspace --quiet; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Laft needs a Stav that is not on crates.io yet, so the release PR is skipped."
+          fi
       - name: Run release-plz
+        if: ${{ steps.stav.outputs.published == 'true' }}
         uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
         with:
           command: release-pr

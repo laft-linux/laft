@@ -25,18 +25,39 @@ jobs:
         with:
           path: laft
           persist-credentials: false
-      # Laft depends on the Stav checkout next to it during development.
+      # CI builds Laft against the Stav branch with the same name as the
+      # Laft branch, or Stav's main when there is none.
+      - name: Pick the Stav branch
+        id: stav
+        working-directory: .
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/laft-linux/stav "refs/heads/$BRANCH" > /dev/null; then
+            ref="$BRANCH"
+          else
+            ref=main
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Building against Stav $ref"
       - name: Checkout Stav
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: laft-linux/stav
+          ref: ${{ steps.stav.outputs.ref }}
           path: stav
           persist-credentials: false
+      - name: Patch Stav to the checkout
+        run: |
+          mkdir -p .cargo
+          printf '[patch.crates-io]\nstav = { path = "../stav/crates/stav" }\n' > .cargo/config.toml
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@ff7f6a3374ce205788da40198ec918bd5d67aea7 # 1.99.0
         with:
           components: rustfmt, clippy
           targets: x86_64-unknown-linux-musl
+      - name: Check that the Stav patch is used
+        run: cargo tree -i stav --depth 0 | grep -q '(.*/stav/crates/stav)'
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Lint

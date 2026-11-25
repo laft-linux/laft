@@ -13,13 +13,15 @@
 - `/dev/kvm`, ideally. Without it the machines are emulated, and everything takes about ten times longer.
 - A network connection for the first run, which downloads the pinned sources.
 
-Laft depends on [Stav](https://github.com/laft-linux/stav) through a checkout next to it, so clone both into the same directory:
+Laft depends on [Stav](https://github.com/laft-linux/stav). Its `main` branch can use Stav changes that are not released yet, so clone both into the same directory and tell Cargo to use the Stav checkout instead of the release on crates.io:
 
 ```sh
 cd ~
 git clone https://github.com/laft-linux/stav
 git clone https://github.com/laft-linux/laft
 cd laft
+mkdir -p .cargo
+printf '[patch.crates-io]\nstav = { path = "../stav/crates/stav" }\n' > .cargo/config.toml
 ```
 
 ## Run the test

@@ -24,7 +24,14 @@ These properties define Laft. A change that breaks one is a bug, even when every
 - The setuid helper `laft-enter` depends only on `laft-core` and `laft-sandbox`, and its own code stays small enough to audit in one sitting. The initramfs init `laft-boot` depends only on `laft-core` and crates.io crates.
 - Client crates never depend on build-side crates.
 - Every binary builds for `x86_64-unknown-linux-musl` as a static executable with mimalloc as the global allocator.
-- During development, Laft depends on the sibling Stav checkout by path (`../stav/crates/stav`), with a version requirement that matches its crate version. Never patch or vendor Stav. When Laft needs a language change, make it in the Stav repository and push it to Stav before the Laft changes that use it. A Stav release that contains every change Laft uses must exist on crates.io before any Laft release.
+- Laft depends on Stav from crates.io. During development, an untracked `.cargo/config.toml` patches it to the sibling Stav checkout:
+
+  ```toml
+  [patch.crates-io]
+  stav = { path = "../stav/crates/stav" }
+  ```
+
+  Never commit that file and never vendor Stav. The version requirement must match the version of the checkout, or Cargo ignores the patch. CI writes the same patch and checks out the Stav branch with the same name as the Laft branch, or `main` when there is none. When Laft needs a language change, make it in the Stav repository and push it to Stav before the Laft changes that use it. A Stav release that contains every change Laft uses must exist on crates.io before any Laft release; release-plz skips the release PR until it does.
 - Every crate manifest inherits the workspace package fields and lints, and has a one-line `description`, which crates.io requires.
 - Everything targets Rust edition 2024 on the stable toolchain pinned in `rust-toolchain.toml`.
 
